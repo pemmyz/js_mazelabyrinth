@@ -7,12 +7,19 @@
     body { margin: 0; overflow: hidden; }
     canvas { display: block; width: 100vw; height: 100vh; }
   </style>
-  <!-- Include glMatrix for matrix math -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+  <!-- Load gl-matrix-min.js from the same folder -->
+  <script src="gl-matrix-min.js"></script>
 </head>
 <body>
   <canvas id="glCanvas"></canvas>
   <script>
+    // ====================================================
+    // A local conversion function (in case glMatrix.toRadian is not available)
+    // ====================================================
+    function toRadian(deg) {
+      return deg * Math.PI / 180;
+    }
+
     // ====================================================
     // Shader sources
     // ====================================================
@@ -68,7 +75,7 @@
     }
 
     // ====================================================
-    // Texture loader
+    // Texture loader (loads from same folder as HTML)
     // ====================================================
     function loadTexture(gl, url) {
       const texture = gl.createTexture();
@@ -76,7 +83,7 @@
       // Temporary 1x1 pixel until image loads.
       const level = 0, internalFormat = gl.RGB, width = 1, height = 1, border = 0,
             srcFormat = gl.RGB, srcType = gl.UNSIGNED_BYTE;
-      const pixel = new Uint8Array([255, 255, 255]);
+      const pixel = new Uint8Array([255, 255, 255]); // white
       gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height,
                     border, srcFormat, srcType, pixel);
 
@@ -93,6 +100,9 @@
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         }
       };
+      image.onerror = function() {
+        console.error("Failed to load texture: " + url);
+      }
       image.src = url;
       return texture;
     }
@@ -122,7 +132,7 @@
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
       if (seed !== undefined) {
         console.log("Creating map with seed:", seed);
-        // Note: For repeatability, a seeded RNG is needed.
+        // Note: For repeatability you would need a seeded RNG.
       }
       let mapGrid = [];
       for (let i = 0; i < height; i++) {
@@ -276,8 +286,7 @@
 
     // ====================================================
     // Build geometry from maze data.
-    // Generates vertices for floor, ceiling, walls, etc.
-    // Each vertex consists of 3 position values and 2 texture coordinates.
+    // Each vertex is composed of 3 position components and 2 texture coordinates.
     // ====================================================
     function buildMazeGeometry(maze) {
       let floorVerts = [];
@@ -288,7 +297,7 @@
       const cols = maze[0].length;
       for (let z = 0; z < rows; z++) {
         for (let x = 0; x < cols; x++) {
-          // Floor quad (y=0)
+          // Floor quad (y = 0)
           floorVerts.push(
             x, 0.0, z,       0.0, 0.0,
             x+1, 0.0, z,     1.0, 0.0,
@@ -298,7 +307,7 @@
             x+1, 0.0, z+1,   1.0, 1.0,
             x, 0.0, z+1,     0.0, 1.0
           );
-          // Ceiling quad (y=1)
+          // Ceiling quad (y = 1)
           ceilingVerts.push(
             x, 1.0, z,       0.0, 0.0,
             x+1, 1.0, z,     1.0, 0.0,
@@ -312,7 +321,7 @@
           if (cell === '#' || cell === 'B' || cell === 'E') {
             let isExit = (cell === 'E');
             // North wall
-            if (z === 0 || !(['#','B','E'].includes(maze[z-1][x]))) {
+            if (z === 0 || !(['#', 'B', 'E'].includes(maze[z-1][x]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
                 x, 0.0, z,       0.0, 0.0,
@@ -325,7 +334,7 @@
               );
             }
             // South wall
-            if (z === rows-1 || !(['#','B','E'].includes(maze[z+1][x]))) {
+            if (z === rows-1 || !(['#', 'B', 'E'].includes(maze[z+1][x]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
                 x, 0.0, z+1,     0.0, 0.0,
@@ -338,7 +347,7 @@
               );
             }
             // West wall
-            if (x === 0 || !(['#','B','E'].includes(maze[z][x-1]))) {
+            if (x === 0 || !(['#', 'B', 'E'].includes(maze[z][x-1]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
                 x, 0.0, z,       0.0, 0.0,
@@ -351,7 +360,7 @@
               );
             }
             // East wall
-            if (x === cols-1 || !(['#','B','E'].includes(maze[z][x+1]))) {
+            if (x === cols-1 || !(['#', 'B', 'E'].includes(maze[z][x+1]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
                 x+1, 0.0, z,     0.0, 0.0,
@@ -410,12 +419,12 @@
         uTexture: gl.getUniformLocation(shaderProgram, "uTexture")
       };
 
-      // Load textures from the /textures folder.
-      textures.ground = loadTexture(gl, "/textures/ground.jpg");
-      textures.roof   = loadTexture(gl, "/textures/roof.jpg");
-      textures.brick  = loadTexture(gl, "/textures/brick.jpg");
+      // Load textures from the same folder.
+      textures.ground = loadTexture(gl, "ground.jpg");
+      textures.roof   = loadTexture(gl, "roof.jpg");
+      textures.brick  = loadTexture(gl, "brick.jpg");
 
-      // Generate the maze (log it to console) and build geometry.
+      // Generate the maze and build geometry.
       mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, 42);
       console.log("Maze:");
       mazeData.maze.forEach(row => console.log(row));
@@ -450,7 +459,7 @@
     // Keyboard controls: W/S to move and A/D to turn.
     // ====================================================
     function onKeyDown(e) {
-      let rad = glMatrix.glMatrix.toRadian(playerAngle);
+      let rad = toRadian(playerAngle);
       let dir = [Math.sin(rad), 0, Math.cos(rad)];
       switch(e.key) {
         case "w":
@@ -478,32 +487,32 @@
     // Render loop
     // ====================================================
     function render(now) {
-      now *= 0.001;
+      now *= 0.001; // convert to seconds
       gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
       gl.useProgram(shaderProgram);
 
       // Set up the perspective projection matrix.
-      const fieldOfView = glMatrix.glMatrix.toRadian(70);
+      const fieldOfView = toRadian(70);
       const aspect = gl.canvas.width / gl.canvas.height;
       const zNear = 0.1, zFar = 100.0;
       const projectionMatrix = glMatrix.mat4.create();
       glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
       gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
 
-      // Set up the view matrix; the eye is raised by 0.5 so the camera is above the floor.
+      // Set up the view matrix; raise the camera slightly above the floor.
       const viewMatrix = glMatrix.mat4.create();
       const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
       const center = [
-        playerPos[0] + Math.sin(glMatrix.glMatrix.toRadian(playerAngle)),
+        playerPos[0] + Math.sin(toRadian(playerAngle)),
         playerPos[1] + 0.5,
-        playerPos[2] + Math.cos(glMatrix.glMatrix.toRadian(playerAngle))
+        playerPos[2] + Math.cos(toRadian(playerAngle))
       ];
       glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
       gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
 
-      // Draw all objects.
+      // Draw objects.
       drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
       drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
       drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
@@ -528,6 +537,9 @@
       gl.drawArrays(gl.TRIANGLES, 0, bufferObj.vertexCount);
     }
 
+    // ====================================================
+    // Start the game on window load.
+    // ====================================================
     window.onload = init;
   </script>
 </body>
