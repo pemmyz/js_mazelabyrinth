@@ -41,7 +41,7 @@
     function lerpAngle(a, b, t) {
       return a + (b - a) * t;
     }
-    
+
     // ============================ Shader Sources ============================
     const vsSource = `
       attribute vec3 aPosition;
@@ -123,7 +123,7 @@
       return (value & (value - 1)) === 0;
     }
 
-    // ============================ Maze Generation Code ============================
+    // ============================ Maze Generation Code (from previous code) ============================
     class Rect {
       constructor(x, y, w, h) {
         this.x1 = x;
@@ -675,107 +675,68 @@
 
     // ============================ Keyboard Controls ============================
     function onKeyDown(e) {
-      // If an animation is in progress, ignore keys.
-      if (animatingTranslation || animatingRotation) return;
-      
-      // Process keys that should work regardless of bot mode:
-      switch(e.key) {
-        case "b":
-        case "B":
-          if (botMode) {
-            // If bot mode is currently on, turn it off.
-            botMode = false;
-            botPath = [];
-            console.log("Bot mode disabled");
-          } else {
-            botMode = true;
-            computeBotPath();
-            console.log("Bot mode enabled");
-          }
-          break;
-        case "1":
-          selectedAlgorithm = "bfs";
-          console.log("Algorithm selected: BFS");
+      // 1) Always handle toggles & bot/algorithm keys:
+      switch (e.key) {
+        case "b": case "B":
+          botMode = !botMode;
+          console.log("Bot mode " + (botMode ? "enabled" : "disabled"));
           if (botMode) computeBotPath();
-          break;
-        case "2":
-          selectedAlgorithm = "dfs";
-          console.log("Algorithm selected: DFS");
+          return;
+        case "1": case "2": case "3": case "4":
+          const algMap = { "1":"bfs","2":"dfs","3":"astar","4":"explore" };
+          selectedAlgorithm = algMap[e.key];
+          console.log("Algorithm selected:", selectedAlgorithm.toUpperCase());
           if (botMode) computeBotPath();
-          break;
-        case "3":
-          selectedAlgorithm = "astar";
-          console.log("Algorithm selected: A*");
-          if (botMode) computeBotPath();
-          break;
-        case "4":
-          selectedAlgorithm = "explore";
-          console.log("Algorithm selected: EXPLORE mode");
-          if (botMode) computeBotPath();
-          break;
-        case "m":
-        case "M":
-          // Only allow toggling the full map when bot mode is off.
-          if (!botMode) {
-            fullMapVisible = !fullMapVisible;
-          }
-          break;
-        case "h":
-        case "H":
+          return;
+        case "m": case "M":
+          fullMapVisible = !fullMapVisible;
+          return;
+        case "h": case "H":
           helpVisible = !helpVisible;
-          break;
+          return;
       }
-      
-      // If bot mode is enabled, skip manual movement keys.
-      if (botMode) return;
 
+      // 2) Block manual movement if bot is running or animation in progress:
+      if (botMode || animatingTranslation || animatingRotation) return;
+
+      // 3) Manual movement controls:
       let rad = toRadian(playerAngle);
       switch(e.key) {
-        case "w":
-        case "ArrowUp":
+        case "w": case "ArrowUp":
           {
-            let offset = [Math.sin(rad), 0, Math.cos(rad)];
-            let newX = playerPos[0] + offset[0];
-            let newZ = playerPos[2] + offset[2];
-            if (canMove(newX, newZ)) {
-              animatingTranslation = true;
-              translationStart = performance.now();
-              startPos = [playerPos[0], playerPos[1], playerPos[2]];
-              targetPos = [newX, playerPos[1], newZ];
+            let offset = [Math.sin(rad),0,Math.cos(rad)];
+            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
+            if (canMove(nx,nz)) {
+              animatingTranslation=true;
+              translationStart=performance.now();
+              startPos=[...playerPos];
+              targetPos=[nx,playerPos[1],nz];
             }
           }
           break;
-        case "s":
-        case "ArrowDown":
+        case "s": case "ArrowDown":
           {
-            let offset = [-Math.sin(rad), 0, -Math.cos(rad)];
-            let newX = playerPos[0] + offset[0];
-            let newZ = playerPos[2] + offset[2];
-            if (canMove(newX, newZ)) {
-              animatingTranslation = true;
-              translationStart = performance.now();
-              startPos = [playerPos[0], playerPos[1], playerPos[2]];
-              targetPos = [newX, playerPos[1], newZ];
+            let offset=[-Math.sin(rad),0,-Math.cos(rad)];
+            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
+            if (canMove(nx,nz)) {
+              animatingTranslation=true;
+              translationStart=performance.now();
+              startPos=[...playerPos];
+              targetPos=[nx,playerPos[1],nz];
             }
           }
           break;
-        case "a":
-        case "ArrowLeft":
-          {
-            animatingRotation = true;
-            rotationStart = performance.now();
-            startAngle = playerAngle;
-            targetAngle = (playerAngle + 90) % 360;
-          }
+        case "a": case "ArrowLeft":
+          animatingRotation=true;
+          rotationStart=performance.now();
+          startAngle=playerAngle;
+          targetAngle=(playerAngle+90)%360;
           break;
-        case "d":
-        case "ArrowRight":
-          {
-            animatingRotation = true;
-            rotationStart = performance.now();
-            startAngle = playerAngle;
-            targetAngle = (playerAngle + 270) % 360;
-          }
+        case "d": case "ArrowRight":
+          animatingRotation=true;
+          rotationStart=performance.now();
+          startAngle=playerAngle;
+          targetAngle=(playerAngle+270)%360;
           break;
       }
     }
@@ -1052,8 +1013,7 @@
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       const cellSize = 12;
       const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
-      // Do not show the full map if bot mode is active.
-      if (fullMapVisible && !botMode) {
+      if (fullMapVisible) {
         let fullMapOffsetX = (window.innerWidth / 2) - (pPos.x * cellSize + cellSize / 2) + dragOffsetX;
         let fullMapOffsetY = (window.innerHeight / 2) - (pPos.y * cellSize + cellSize / 2) + dragOffsetY;
         drawFullMap(ctx, mazeData.maze, discovered, pPos, fullMapOffsetX, fullMapOffsetY, overlay.width, overlay.height);
@@ -1073,7 +1033,7 @@
           "S/Arrow Down: Move backward",
           "A/Arrow Left: Turn left",
           "D/Arrow Right: Turn right",
-          "M: Toggle full map (only when bot mode is OFF)",
+          "M: Toggle full map",
           "H: Toggle help",
           "B: Toggle bot mode",
           "1: BFS pathfinding",
