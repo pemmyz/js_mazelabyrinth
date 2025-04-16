@@ -2,10 +2,10 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Maze Game WebGL with Map Overlay</title>
+  <title>Maze Game WebGL with Map Overlay, Exit Block & Draggable Map</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    /* The WebGL canvas fills the viewport */
+    /* WebGL canvas fills the viewport */
     #glCanvas {
       position: absolute;
       top: 0;
@@ -14,7 +14,7 @@
       height: 100vh;
       z-index: 0;
     }
-    /* The overlay canvas sits above the WebGL canvas and passes through pointer events */
+    /* Overlay canvas for the 2D map and help text */
     #mazeCanvas {
       position: absolute;
       top: 0;
@@ -22,25 +22,30 @@
       width: 100vw;
       height: 100vh;
       z-index: 1;
-      pointer-events: none;
+      pointer-events: auto; /* allow mouse events for dragging */
     }
   </style>
-  <!-- Load gl-matrix-min.js (make sure this file is in the same folder) -->
+  <!-- Make sure gl-matrix-min.js is in the same folder -->
   <script src="gl-matrix-min.js"></script>
 </head>
 <body>
   <canvas id="glCanvas"></canvas>
   <canvas id="mazeCanvas"></canvas>
   <script>
-    // ============================ WebGL and Maze Game Code ============================
-    // Utility function
+    // ============================ Utility Functions ============================
     function toRadian(deg) {
       return deg * Math.PI / 180;
     }
+    // Linear interpolation for numbers.
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+    // Linear interpolation for angles.
+    function lerpAngle(a, b, t) {
+      return a + (b - a) * t;
+    }
     
-    // ====================================================
-    // Shader sources
-    // ====================================================
+    // ============================ Shader Sources ============================
     const vsSource = `
       attribute vec3 aPosition;
       attribute vec2 aTexCoord;
@@ -63,9 +68,7 @@
       }
     `;
     
-    // ====================================================
-    // Shader utility functions
-    // ====================================================
+    // ============================ Shader Utility Functions ============================
     function loadShader(gl, type, source) {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);
@@ -92,16 +95,14 @@
       return shaderProgram;
     }
     
-    // ====================================================
-    // Texture loader (assumes images are in the same folder)
-    // ====================================================
+    // ============================ Texture Loader ============================
     function loadTexture(gl, url) {
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      // Temporary 1x1 pixel until image loads.
+      // Temporary 1x1 pixel (white) until image loads.
       const level = 0, internalFormat = gl.RGB, width = 1, height = 1, border = 0,
             srcFormat = gl.RGB, srcType = gl.UNSIGNED_BYTE;
-      const pixel = new Uint8Array([255, 255, 255]); // white
+      const pixel = new Uint8Array([255, 255, 255]);
       gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height,
                     border, srcFormat, srcType, pixel);
       const image = new Image();
@@ -128,9 +129,7 @@
       return (value & (value - 1)) === 0;
     }
     
-    // ====================================================
-    // Maze generation code
-    // ====================================================
+    // ============================ Maze Generation Code ============================
     class Rect {
       constructor(x, y, w, h) {
         this.x1 = x;
@@ -145,11 +144,10 @@
       }
     }
     
-    // Returns an object with maze (an array of strings) and rooms (array of Rect)
+    // Creates the maze as an array of strings and returns a rooms array.
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
       if (seed !== undefined) {
         console.log("Creating map with seed:", seed);
-        // For repeatability, you would use a seeded RNG.
       }
       let mapGrid = [];
       for (let i = 0; i < height; i++) {
@@ -202,7 +200,7 @@
         }
         rooms.push(newRoom);
       }
-      // Place exit in the last room.
+      // Place an exit in the last room.
       if (rooms.length > 0) {
         let lastRoom = rooms[rooms.length - 1];
         let roomW = lastRoom.x2 - lastRoom.x1;
@@ -223,13 +221,7 @@
           }
         } else {
           let candidates = [];
-          if (roomH > 2) {
-            for (let x = lastRoom.x1 + 1; x < lastRoom.x2 - 1; x++) {
-              candidates.push([x, lastRoom.y1 + 1]);
-              candidates.push([x, lastRoom.y2 - 2]);
-            }
-          }
-          if (roomW > 2) {
+          if (lastRoom.x2 - lastRoom.x1 > 2) {
             for (let y = lastRoom.y1 + 1; y < lastRoom.y2 - 1; y++) {
               candidates.push([lastRoom.x1 + 1, y]);
               candidates.push([lastRoom.x2 - 2, y]);
@@ -248,13 +240,18 @@
         }
         mapGrid[exitY][exitX] = 'E';
       }
-      // Convert isolated wall cells to 'B'
+      // Convert isolated wall cells to 'B'.
       for (let i = 0; i < height; i++) {
         for (let j = 0; j < width; j++) {
           if (mapGrid[i][j] === '#') {
             let isRoomCorner = false;
             for (let room of rooms) {
-              let corners = [[room.x1, room.y1], [room.x2 - 1, room.y1], [room.x1, room.y2 - 1], [room.x2 - 1, room.y2 - 1]];
+              let corners = [
+                [room.x1, room.y1],
+                [room.x2 - 1, room.y1],
+                [room.x1, room.y2 - 1],
+                [room.x2 - 1, room.y2 - 1]
+              ];
               for (let c of corners) {
                 if (c[0] === j && c[1] === i) { isRoomCorner = true; break; }
               }
@@ -266,7 +263,10 @@
             for (let d of dirs) {
               let nx = j + d[0], ny = i + d[1];
               if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                if (mapGrid[ny][nx] === ' ' || mapGrid[ny][nx] === 'E') { adjacentOpen = true; break; }
+                if (mapGrid[ny][nx] === ' ' || mapGrid[ny][nx] === 'E') {
+                  adjacentOpen = true;
+                  break;
+                }
               }
             }
             if (!adjacentOpen) {
@@ -279,10 +279,7 @@
       return { maze: maze, rooms: rooms };
     }
     
-    // ====================================================
-    // Build geometry from maze data.
-    // Each vertex: 3 position components and 2 texture coordinates.
-    // ====================================================
+    // ============================ Build Maze Geometry ============================
     function buildMazeGeometry(maze) {
       let floorVerts = [];
       let ceilingVerts = [];
@@ -292,7 +289,7 @@
       const cols = maze[0].length;
       for (let z = 0; z < rows; z++) {
         for (let x = 0; x < cols; x++) {
-          // Floor quad (y = 0)
+          // Floor (y=0)
           floorVerts.push(
             x, 0.0, z,       0.0, 0.0,
             x+1, 0.0, z,     1.0, 0.0,
@@ -302,7 +299,7 @@
             x+1, 0.0, z+1,   1.0, 1.0,
             x, 0.0, z+1,     0.0, 1.0
           );
-          // Ceiling quad (y = 1)
+          // Ceiling (y=1)
           ceilingVerts.push(
             x, 1.0, z,       0.0, 0.0,
             x+1, 1.0, z,     1.0, 0.0,
@@ -378,23 +375,104 @@
       };
     }
     
-    // ====================================================
-    // Global variables for WebGL and game state.
-    // ====================================================
+    // ============================ Global Variables ============================
     let gl, shaderProgram;
     let attribLocations, uniformLocations;
     let buffers = {};
     let textures = {};
     let mazeData, geometry;
-    let discovered = []; // 2D array for discovery (all true for demo)
-    let playerPos = [2.5, 0.0, 2.5]; // starting position (x, y, z)
-    let playerAngle = 0; // in degrees
-    const mazeWidth = 40, mazeHeight = 40, maxRooms = 10, roomMinSize = 3, roomMaxSize = 7;
-    let fullMapVisible = false;  // toggle flag for full map overlay
+    let discovered = [];
+    let playerPos = [2.5, 0.0, 2.5];
+    let playerAngle = 0;
+    const mazeWidth = 100, mazeHeight = 100, maxRooms = 40, roomMinSize = 3, roomMaxSize = 8;
+    let fullMapVisible = false;
+    let helpVisible = false;
     
-    // ====================================================
-    // Initialization: set up canvas, WebGL, shaders, textures, maze, buffers, and input.
-    // ====================================================
+    // Animation variables for smooth movement.
+    let animatingTranslation = false;
+    let translationStart = 0;
+    const translationDuration = 100; // in milliseconds
+    let startPos = [0, 0, 0];
+    let targetPos = [0, 0, 0];
+    
+    let animatingRotation = false;
+    let rotationStart = 0;
+    const rotationDuration = 200;
+    let startAngle = 0;
+    let targetAngle = 0;
+    
+    // Variables for map dragging.
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    
+    // ============================ Collision Detection ============================
+    function canMove(newX, newZ) {
+      const mazeRows = mazeData.maze.length;
+      const mazeCols = mazeData.maze[0].length;
+      if (newX >= 0 && newX < mazeCols && newZ >= 0 && newZ < mazeRows) {
+         const cell = mazeData.maze[Math.floor(newZ)].charAt(Math.floor(newX));
+         if (cell === '#' || cell === 'B') {
+             return false;
+         }
+         return true;
+      }
+      return true;
+    }
+    
+    // ============================ Maze Restart Function ============================
+    function restartGame() {
+      console.log("Exit reached! Restarting game with new map.");
+      // Generate a new random seed (using current time)
+      let newSeed = Date.now();
+      mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, newSeed);
+      console.log("New Maze:");
+      mazeData.maze.forEach(row => console.log(row));
+      // Reset discovered array to cover the new maze.
+      discovered = [];
+      for (let i = 0; i < mazeData.maze.length; i++) {
+        discovered[i] = [];
+        for (let j = 0; j < mazeData.maze[i].length; j++) {
+          discovered[i][j] = true;
+        }
+      }
+      // Rebuild geometry and update buffers.
+      geometry = buildMazeGeometry(mazeData.maze);
+      initBuffers();
+      // Place the player at the center of the first room.
+      if (mazeData.rooms && mazeData.rooms.length > 0) {
+        let spawnRoom = mazeData.rooms[0];
+        playerPos[0] = spawnRoom.center[0] + 0.5;
+        playerPos[2] = spawnRoom.center[1] + 0.5;
+      }
+      // Reset player angle and drag offsets.
+      playerAngle = 0;
+      dragOffsetX = 0;
+      dragOffsetY = 0;
+    }
+    
+    // ============================ Mouse Event Handlers for Dragging ============================
+    function onMouseDown(e) {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+    function onMouseMove(e) {
+      if (!isDragging) return;
+      let dx = e.clientX - dragStartX;
+      let dy = e.clientY - dragStartY;
+      dragOffsetX += dx;
+      dragOffsetY += dy;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+    function onMouseUp(e) {
+      isDragging = false;
+    }
+    
+    // ============================ Initialization ============================
     function init() {
       const canvas = document.getElementById("glCanvas");
       canvas.width = window.innerWidth;
@@ -415,31 +493,46 @@
         uModel: gl.getUniformLocation(shaderProgram, "uModel"),
         uTexture: gl.getUniformLocation(shaderProgram, "uTexture")
       };
-    
-      // Load textures (ensure these image files are in your folder)
+      
       textures.ground = loadTexture(gl, "ground.jpg");
       textures.roof   = loadTexture(gl, "roof.jpg");
       textures.brick  = loadTexture(gl, "brick.jpg");
-    
-      // Generate the maze and build geometry.
+      // Load the exit texture.
+      textures.exit   = loadTexture(gl, "exit.png");
+      
       mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, 42);
       console.log("Maze:");
       mazeData.maze.forEach(row => console.log(row));
+      
+      // Ensure player spawns in a white (floor) cell—in the center of the first room.
+      if (mazeData.rooms && mazeData.rooms.length > 0) {
+        let spawnRoom = mazeData.rooms[0];
+        playerPos[0] = spawnRoom.center[0] + 0.5;
+        playerPos[2] = spawnRoom.center[1] + 0.5;
+      }
+      
       geometry = buildMazeGeometry(mazeData.maze);
       initBuffers();
-    
-      // Create the discovered array (in a real game this would update as the player explores)
+      
+      // Initialize the discovered array.
       for (let i = 0; i < mazeData.maze.length; i++) {
         discovered[i] = [];
         for (let j = 0; j < mazeData.maze[i].length; j++) {
           discovered[i][j] = true;
         }
       }
-    
+      
       gl.clearColor(0.5, 0.5, 0.5, 1.0);
       gl.enable(gl.DEPTH_TEST);
-    
+      
       window.addEventListener("keydown", onKeyDown, false);
+      // Add mouse events for map dragging.
+      const overlay = document.getElementById("mazeCanvas");
+      overlay.addEventListener("mousedown", onMouseDown, false);
+      overlay.addEventListener("mousemove", onMouseMove, false);
+      overlay.addEventListener("mouseup", onMouseUp, false);
+      overlay.addEventListener("mouseleave", onMouseUp, false);
+      
       requestAnimationFrame(render);
     }
     
@@ -456,62 +549,101 @@
       gl.bufferData(gl.ARRAY_BUFFER, dataArray, gl.STATIC_DRAW);
       return {
         buffer: buffer,
-        vertexCount: dataArray.length / 5  // each vertex: 3 position + 2 texcoord
+        vertexCount: dataArray.length / 5
       };
     }
     
-    // ====================================================
-    // Keyboard controls: W/S to move, A/D to turn, and M to toggle full map.
-    // ====================================================
+    // ============================ Keyboard Controls ============================
     function onKeyDown(e) {
+      // Ignore new movement if an animation is already in progress.
+      if (animatingTranslation || animatingRotation) return;
       let rad = toRadian(playerAngle);
-      let dir = [Math.sin(rad), 0, Math.cos(rad)];
       switch(e.key) {
         case "w":
         case "ArrowUp":
-          playerPos[0] += dir[0] * 0.5;
-          playerPos[2] += dir[2] * 0.5;
+          {
+            let offset = [Math.sin(rad), 0, Math.cos(rad)];
+            let newX = playerPos[0] + offset[0];
+            let newZ = playerPos[2] + offset[2];
+            if (canMove(newX, newZ)) {
+              animatingTranslation = true;
+              translationStart = performance.now();
+              startPos = [playerPos[0], playerPos[1], playerPos[2]];
+              targetPos = [newX, playerPos[1], newZ];
+            }
+          }
           break;
         case "s":
         case "ArrowDown":
-          playerPos[0] -= dir[0] * 0.5;
-          playerPos[2] -= dir[2] * 0.5;
+          {
+            let offset = [-Math.sin(rad), 0, -Math.cos(rad)];
+            let newX = playerPos[0] + offset[0];
+            let newZ = playerPos[2] + offset[2];
+            if (canMove(newX, newZ)) {
+              animatingTranslation = true;
+              translationStart = performance.now();
+              startPos = [playerPos[0], playerPos[1], playerPos[2]];
+              targetPos = [newX, playerPos[1], newZ];
+            }
+          }
           break;
         case "a":
         case "ArrowLeft":
-          playerAngle = (playerAngle + 90) % 360;
+          {
+            animatingRotation = true;
+            rotationStart = performance.now();
+            startAngle = playerAngle;
+            targetAngle = (playerAngle + 90) % 360;
+          }
           break;
         case "d":
         case "ArrowRight":
-          playerAngle = (playerAngle + 270) % 360;
+          {
+            animatingRotation = true;
+            rotationStart = performance.now();
+            startAngle = playerAngle;
+            targetAngle = (playerAngle + 270) % 360;
+          }
           break;
         case "m":
         case "M":
-          // Toggle the full map overlay on/off.
           fullMapVisible = !fullMapVisible;
+          break;
+        case "h":
+        case "H":
+          helpVisible = !helpVisible;
           break;
       }
     }
     
-    // ====================================================
-    // Render loop: render the 3D scene and update the overlay.
-    // ====================================================
+    // ============================ Render Loop ============================
     function render(now) {
-      now *= 0.001; // convert to seconds
+      now *= 0.001;
+      let currentTime = performance.now();
+      if (animatingTranslation) {
+        let t = (currentTime - translationStart) / translationDuration;
+        if (t >= 1) { t = 1; animatingTranslation = false; }
+        playerPos[0] = lerp(startPos[0], targetPos[0], t);
+        playerPos[1] = lerp(startPos[1], targetPos[1], t);
+        playerPos[2] = lerp(startPos[2], targetPos[2], t);
+      }
+      if (animatingRotation) {
+        let t = (currentTime - rotationStart) / rotationDuration;
+        if (t >= 1) { t = 1; animatingRotation = false; }
+        playerAngle = lerpAngle(startAngle, targetAngle, t);
+      }
+      
       gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    
       gl.useProgram(shaderProgram);
-    
-      // Set up perspective projection matrix.
-      const fieldOfView = toRadian(70);
+      
+      const fieldOfView = toRadian(90);
       const aspect = gl.canvas.width / gl.canvas.height;
       const zNear = 0.1, zFar = 100.0;
       const projectionMatrix = glMatrix.mat4.create();
       glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
       gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
-    
-      // Set up view matrix (camera slightly above floor).
+      
       const viewMatrix = glMatrix.mat4.create();
       const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
       const center = [
@@ -521,22 +653,27 @@
       ];
       glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
       gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
-    
-      // Draw objects.
+      
       drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
       drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
       drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
-      drawObject(buffers.wallExit, textures.brick, glMatrix.mat4.create());
-    
-      // Update 2D overlay (minimap and possibly full map).
+      // Draw the exit block using the exit texture.
+      drawObject(buffers.wallExit, textures.exit, glMatrix.mat4.create());
+      
       updateOverlay();
-    
+      
+      // Check if the player reached an exit cell and restart the game.
+      if (!animatingTranslation && !animatingRotation) {
+        let currentCellX = Math.floor(playerPos[0]);
+        let currentCellZ = Math.floor(playerPos[2]);
+        if (mazeData.maze[currentCellZ].charAt(currentCellX) === 'E') {
+          restartGame();
+        }
+      }
+      
       requestAnimationFrame(render);
     }
     
-    // ====================================================
-    // Draw a given object using its buffer and texture.
-    // ====================================================
     function drawObject(bufferObj, texture, modelMatrix) {
       gl.bindBuffer(gl.ARRAY_BUFFER, bufferObj.buffer);
       gl.enableVertexAttribArray(attribLocations.aPosition);
@@ -550,42 +687,27 @@
       gl.drawArrays(gl.TRIANGLES, 0, bufferObj.vertexCount);
     }
     
-    // ============================ 2D Overlay (Full Map & Minimap) Code ============================
-    // These functions are adapted from your demo code.
-    
-    // Draws the full maze map overlay.
+    // ============================ 2D Overlay Functions ============================
+    // Draws the full maze map with correct orientation and centers on player's position.
     function drawFullMap(ctx, maze, discovered, playerPos, fullMapOffsetX, fullMapOffsetY, windowWidth, windowHeight) {
       const cellSize = 12;
       const cols = maze[0].length;
       const rows = maze.length;
       const mapWidth = cols * cellSize;
       const mapHeight = rows * cellSize;
-      
-      // Center the map in the canvas with the given offsets.
-      const startX = (windowWidth - mapWidth) / 2 + fullMapOffsetX;
-      const startY = (windowHeight - mapHeight) / 2 + fullMapOffsetY;
-      
-      // Draw a border around the map.
       ctx.fillStyle = "black";
-      ctx.fillRect(startX - 2, startY - 2, mapWidth + 4, mapHeight + 4);
+      ctx.fillRect(fullMapOffsetX - 2, fullMapOffsetY - 2, mapWidth + 4, mapHeight + 4);
       
-      // Draw each cell. The vertical coordinate is flipped so row 0 is at the bottom.
       for (let i = 0; i < rows; i++) {
         for (let j = 0; j < cols; j++) {
-          let x = startX + j * cellSize;
-          let y = startY + (rows - 1 - i) * cellSize;
-          
+          let x = fullMapOffsetX + j * cellSize;
+          let y = fullMapOffsetY + i * cellSize;
           if (discovered[i][j]) {
             const cell = maze[i].charAt(j);
-            if (cell === "#") {
-              ctx.fillStyle = "rgb(77,77,77)"; // dark gray wall
-            } else if (cell === "E") {
-              ctx.fillStyle = "red";          // exit
-            } else if (cell === "B") {
-              ctx.fillStyle = "black";
-            } else {
-              ctx.fillStyle = "white";        // floor
-            }
+            if (cell === "#") ctx.fillStyle = "rgb(77,77,77)";
+            else if (cell === "E") ctx.fillStyle = "red";
+            else if (cell === "B") ctx.fillStyle = "black";
+            else ctx.fillStyle = "white";
           } else {
             ctx.fillStyle = "black";
           }
@@ -593,33 +715,28 @@
         }
       }
       
-      // Draw the player icon "@" centered in the cell.
       const playerCellX = Math.floor(playerPos.x);
       const playerCellY = Math.floor(playerPos.y);
-      const iconX = startX + playerCellX * cellSize + (cellSize - 8) / 2;
-      const iconY = startY + (rows - 1 - playerCellY) * cellSize + (cellSize - 13) / 2;
+      const iconX = fullMapOffsetX + playerCellX * cellSize + (cellSize - 8) / 2;
+      const iconY = fullMapOffsetY + playerCellY * cellSize + (cellSize - 13) / 2;
       ctx.fillStyle = "green";
       ctx.font = "bold 12px monospace";
       ctx.fillText("@", iconX, iconY + 12);
     }
     
-    // Draws a minimap (a small region centered on the player).
+    // Draws a minimap (small fixed region) with correct orientation.
     function drawMinimap(ctx, maze, discovered, playerPos, windowWidth, windowHeight) {
-      const regionSize = 12;  // minimap region in cells
-      const cellSize = 8;     // pixel size for each minimap cell
-      const margin = 10;      // margin from edge
-      
+      const regionSize = 12;
+      const cellSize = 8;
+      const margin = 10;
       const mapWidthPixels = regionSize * cellSize;
       const mapHeightPixels = regionSize * cellSize;
-      // Position the minimap at the bottom-right corner.
       const startX = windowWidth - mapWidthPixels - margin;
       const startY = margin;
       
-      // Draw a border.
       ctx.fillStyle = "black";
       ctx.fillRect(startX - 2, startY - 2, mapWidthPixels + 4, mapHeightPixels + 4);
-    
-      // Compute the starting maze cell for the minimap region (centered on the player).
+      
       const startCellX = Math.floor(playerPos.x) - Math.floor(regionSize / 2);
       const startCellY = Math.floor(playerPos.y) - Math.floor(regionSize / 2);
       
@@ -627,22 +744,15 @@
         for (let j = 0; j < regionSize; j++) {
           const mazeY = startCellY + i;
           const mazeX = startCellX + j;
-          if (mazeY < 0 || mazeY >= maze.length || mazeX < 0 || mazeX >= maze[0].length) {
-            continue;
-          }
+          if (mazeY < 0 || mazeY >= maze.length || mazeX < 0 || mazeX >= maze[0].length) continue;
           const x = startX + j * cellSize;
-          const y = startY + (regionSize - 1 - i) * cellSize;
+          const y = startY + i * cellSize;
           if (discovered[mazeY][mazeX]) {
             const cell = maze[mazeY].charAt(mazeX);
-            if (cell === "#") {
-              ctx.fillStyle = "rgb(77,77,77)";
-            } else if (cell === "E") {
-              ctx.fillStyle = "red";
-            } else if (cell === "B") {
-              ctx.fillStyle = "black";
-            } else {
-              ctx.fillStyle = "white";
-            }
+            if (cell === "#") ctx.fillStyle = "rgb(77,77,77)";
+            else if (cell === "E") ctx.fillStyle = "red";
+            else if (cell === "B") ctx.fillStyle = "black";
+            else ctx.fillStyle = "white";
           } else {
             ctx.fillStyle = "black";
           }
@@ -650,9 +760,8 @@
         }
       }
       
-      // Draw the player icon on the minimap.
-      const relX = (Math.floor(playerPos.x) - startCellX);
-      const relY = (regionSize - 1) - (Math.floor(playerPos.y) - startCellY);
+      const relX = Math.floor(playerPos.x) - startCellX;
+      const relY = Math.floor(playerPos.y) - startCellY;
       const iconX = startX + relX * cellSize + (cellSize - 8) / 2;
       const iconY = startY + relY * cellSize + (cellSize - 13) / 2;
       ctx.fillStyle = "green";
@@ -660,28 +769,62 @@
       ctx.fillText("@", iconX, iconY + 12);
     }
     
-    // Update the overlay canvas by drawing the minimap and, if toggled, the full map.
+    // Updates the overlay (full map, minimap, help overlay, and persistent hint).
     function updateOverlay() {
       const overlay = document.getElementById("mazeCanvas");
-      // Ensure the overlay canvas covers the window.
       overlay.width = window.innerWidth;
       overlay.height = window.innerHeight;
       const ctx = overlay.getContext("2d");
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       
-      // The player position for the map is taken from the x (column) and z (row) coordinates.
+      // For full map view, center on the player's grid cell.
+      const cellSize = 12;
+      // pPos uses grid coordinates from playerPos[0] (x) and playerPos[2] (y).
       const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+      
       if (fullMapVisible) {
-        // Draw the full maze map centered in the canvas.
-        drawFullMap(ctx, mazeData.maze, discovered, pPos, 0, 0, overlay.width, overlay.height);
+        // Calculate offsets so that the player's cell is centered.
+        let fullMapOffsetX = (window.innerWidth / 2) - (pPos.x * cellSize + cellSize / 2);
+        let fullMapOffsetY = (window.innerHeight / 2) - (pPos.y * cellSize + cellSize / 2);
+        // Add any extra offset from dragging.
+        fullMapOffsetX += dragOffsetX;
+        fullMapOffsetY += dragOffsetY;
+        drawFullMap(ctx, mazeData.maze, discovered, pPos, fullMapOffsetX, fullMapOffsetY, overlay.width, overlay.height);
       }
-      // Always draw the minimap.
+      
+      // Always draw the fixed minimap.
       drawMinimap(ctx, mazeData.maze, discovered, pPos, overlay.width, overlay.height);
+      
+      if (helpVisible) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        const boxWidth = 300, boxHeight = 150;
+        ctx.fillRect(10, 10, boxWidth, boxHeight);
+        ctx.fillStyle = "white";
+        ctx.font = "16px monospace";
+        const lineHeight = 20;
+        let startX = 20, startY = 35;
+        const instructions = [
+          "Controls:",
+          "W / Arrow Up: Move forward (1 cell)",
+          "S / Arrow Down: Move backward (1 cell)",
+          "A / Arrow Left: Turn left (90°)",
+          "D / Arrow Right: Turn right (90°)",
+          "M: Toggle full map",
+          "H: Toggle help",
+          "Drag with mouse to pan full map"
+        ];
+        for (let i = 0; i < instructions.length; i++) {
+          ctx.fillText(instructions[i], startX, startY + i * lineHeight);
+        }
+      }
+      
+      // Always show a persistent hint.
+      ctx.fillStyle = "white";
+      ctx.font = "16px monospace";
+      ctx.fillText("Hint: Press H - for help", 10, overlay.height - 20);
     }
     
-    // ====================================================
-    // Start the game on window load.
-    // ====================================================
+    // ============================ Start the Game ============================
     window.onload = init;
   </script>
 </body>
