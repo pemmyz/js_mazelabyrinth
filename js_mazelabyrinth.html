@@ -41,7 +41,7 @@
     function lerpAngle(a, b, t) {
       return a + (b - a) * t;
     }
-
+    
     // ============================ Shader Sources ============================
     const vsSource = `
       attribute vec3 aPosition;
@@ -123,7 +123,7 @@
       return (value & (value - 1)) === 0;
     }
 
-    // ============================ Maze Generation Code (from previous code) ============================
+    // ============================ Maze Generation Code ============================
     class Rect {
       constructor(x, y, w, h) {
         this.x1 = x;
@@ -675,15 +675,23 @@
 
     // ============================ Keyboard Controls ============================
     function onKeyDown(e) {
-      // If an animation is in progress or bot mode is active, ignore manual movement keys.
+      // If an animation is in progress, ignore keys.
       if (animatingTranslation || animatingRotation) return;
-      // Bot mode and algorithm selection
+      
+      // Process keys that should work regardless of bot mode:
       switch(e.key) {
         case "b":
         case "B":
-          botMode = !botMode;
-          console.log("Bot mode " + (botMode ? "enabled" : "disabled"));
-          if (botMode) computeBotPath();
+          if (botMode) {
+            // If bot mode is currently on, turn it off.
+            botMode = false;
+            botPath = [];
+            console.log("Bot mode disabled");
+          } else {
+            botMode = true;
+            computeBotPath();
+            console.log("Bot mode enabled");
+          }
           break;
         case "1":
           selectedAlgorithm = "bfs";
@@ -705,9 +713,22 @@
           console.log("Algorithm selected: EXPLORE mode");
           if (botMode) computeBotPath();
           break;
+        case "m":
+        case "M":
+          // Only allow toggling the full map when bot mode is off.
+          if (!botMode) {
+            fullMapVisible = !fullMapVisible;
+          }
+          break;
+        case "h":
+        case "H":
+          helpVisible = !helpVisible;
+          break;
       }
-      // If bot mode is active, skip manual movement controls.
+      
+      // If bot mode is enabled, skip manual movement keys.
       if (botMode) return;
+
       let rad = toRadian(playerAngle);
       switch(e.key) {
         case "w":
@@ -755,14 +776,6 @@
             startAngle = playerAngle;
             targetAngle = (playerAngle + 270) % 360;
           }
-          break;
-        case "m":
-        case "M":
-          fullMapVisible = !fullMapVisible;
-          break;
-        case "h":
-        case "H":
-          helpVisible = !helpVisible;
           break;
       }
     }
@@ -1039,7 +1052,8 @@
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       const cellSize = 12;
       const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
-      if (fullMapVisible) {
+      // Do not show the full map if bot mode is active.
+      if (fullMapVisible && !botMode) {
         let fullMapOffsetX = (window.innerWidth / 2) - (pPos.x * cellSize + cellSize / 2) + dragOffsetX;
         let fullMapOffsetY = (window.innerHeight / 2) - (pPos.y * cellSize + cellSize / 2) + dragOffsetY;
         drawFullMap(ctx, mazeData.maze, discovered, pPos, fullMapOffsetX, fullMapOffsetY, overlay.width, overlay.height);
@@ -1059,7 +1073,7 @@
           "S/Arrow Down: Move backward",
           "A/Arrow Left: Turn left",
           "D/Arrow Right: Turn right",
-          "M: Toggle full map",
+          "M: Toggle full map (only when bot mode is OFF)",
           "H: Toggle help",
           "B: Toggle bot mode",
           "1: BFS pathfinding",
