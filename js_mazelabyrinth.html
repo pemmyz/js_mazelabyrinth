@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Maze Game</title>
+  <title>Maze Game WebGL</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; width: 100vw; height: 100vh; }
@@ -14,7 +14,7 @@
   <canvas id="glCanvas"></canvas>
   <script>
     // ====================================================
-    // Shader sources (using WebGL 1.0 / GLSL ES 100)
+    // Shader sources
     // ====================================================
     const vsSource = `
       attribute vec3 aPosition;
@@ -46,7 +46,7 @@
       gl.shaderSource(shader, source);
       gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        alert('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+        alert('Error compiling shader: ' + gl.getShaderInfoLog(shader));
         gl.deleteShader(shader);
         return null;
       }
@@ -61,7 +61,7 @@
       gl.attachShader(shaderProgram, fragmentShader);
       gl.linkProgram(shaderProgram);
       if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-        alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+        alert('Error linking shader program: ' + gl.getProgramInfoLog(shaderProgram));
         return null;
       }
       return shaderProgram;
@@ -73,33 +73,25 @@
     function loadTexture(gl, url) {
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
-
-      // Because images take time to load, put a single pixel in texture so we can use it immediately.
-      const level = 0;
-      const internalFormat = gl.RGB;
-      const width = 1;
-      const height = 1;
-      const border = 0;
-      const srcFormat = gl.RGB;
-      const srcType = gl.UNSIGNED_BYTE;
-      const pixel = new Uint8Array([255, 255, 255]); // white
-      gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-                    width, height, border, srcFormat, srcType,
-                    pixel);
+      // Temporary 1x1 pixel until image loads.
+      const level = 0, internalFormat = gl.RGB, width = 1, height = 1, border = 0,
+            srcFormat = gl.RGB, srcType = gl.UNSIGNED_BYTE;
+      const pixel = new Uint8Array([255, 255, 255]);
+      gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height,
+                    border, srcFormat, srcType, pixel);
 
       const image = new Image();
       image.onload = function() {
-          gl.bindTexture(gl.TEXTURE_2D, texture);
-          gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-                        srcFormat, srcType, image);
-          // WebGL1 has different requirements for power of 2 images
-          if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
-              gl.generateMipmap(gl.TEXTURE_2D);
-          } else {
-              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-          }
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+                      srcFormat, srcType, image);
+        if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+          gl.generateMipmap(gl.TEXTURE_2D);
+        } else {
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
       };
       image.src = url;
       return texture;
@@ -110,7 +102,7 @@
     }
 
     // ====================================================
-    // Maze generation code
+    // Maze generation code (JavaScript version)
     // ====================================================
     class Rect {
       constructor(x, y, w, h) {
@@ -126,13 +118,12 @@
       }
     }
 
-    // createMap returns an object with the maze (as an array of strings) and a list of rooms.
+    // Returns an object with maze (array of strings) and rooms (array of Rect)
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
       if (seed !== undefined) {
         console.log("Creating map with seed:", seed);
-        // For simplicity, we use Math.random here. For reproducible maps you’d need a seeded RNG.
+        // Note: For repeatability, a seeded RNG is needed.
       }
-      // Initialize the grid with walls ('#')
       let mapGrid = [];
       for (let i = 0; i < height; i++) {
         let row = [];
@@ -149,7 +140,6 @@
         let y = Math.floor(Math.random() * (height - h - 2)) + 1;
         let newRoom = new Rect(x, y, w, h);
         if (rooms.some(room => newRoom.intersect(room))) continue;
-        // Carve the room interior
         if (w > 2 && h > 2) {
           for (let i = newRoom.y1 + 1; i < newRoom.y2 - 1; i++) {
             for (let j = newRoom.x1 + 1; j < newRoom.x2 - 1; j++) {
@@ -163,7 +153,6 @@
             }
           }
         }
-        // Connect this room to the previous room with corridors
         if (rooms.length > 0) {
           let prev = rooms[rooms.length - 1];
           let [prevX, prevY] = prev.center;
@@ -186,7 +175,6 @@
         }
         rooms.push(newRoom);
       }
-      // Optionally add an extra room if the last room is too small.
       if (rooms.length > 0) {
         let lastRoom = rooms[rooms.length - 1];
         let roomW = lastRoom.x2 - lastRoom.x1;
@@ -210,7 +198,6 @@
           }
         }
       }
-      // Mark the exit in the last room.
       if (rooms.length > 0) {
         let lastRoom = rooms[rooms.length - 1];
         let roomW = lastRoom.x2 - lastRoom.x1;
@@ -283,15 +270,14 @@
           }
         }
       }
-      // Convert mapGrid rows to strings.
       let maze = mapGrid.map(row => row.join(''));
       return { maze: maze, rooms: rooms };
     }
 
     // ====================================================
-    // Build geometry arrays from the maze.
-    // We build vertices for the floor, ceiling, brick walls and exit walls.
-    // Each vertex: position (x,y,z) and texture coordinates (u,v)
+    // Build geometry from maze data.
+    // Generates vertices for floor, ceiling, walls, etc.
+    // Each vertex consists of 3 position values and 2 texture coordinates.
     // ====================================================
     function buildMazeGeometry(maze) {
       let floorVerts = [];
@@ -302,25 +288,25 @@
       const cols = maze[0].length;
       for (let z = 0; z < rows; z++) {
         for (let x = 0; x < cols; x++) {
-          // Floor (y=0)
+          // Floor quad (y=0)
           floorVerts.push(
-            x, 0.0, z,    0.0, 0.0,
-            x+1, 0.0, z,  1.0, 0.0,
-            x+1, 0.0, z+1,1.0, 1.0,
+            x, 0.0, z,       0.0, 0.0,
+            x+1, 0.0, z,     1.0, 0.0,
+            x+1, 0.0, z+1,   1.0, 1.0,
 
-            x, 0.0, z,    0.0, 0.0,
-            x+1, 0.0, z+1,1.0, 1.0,
-            x, 0.0, z+1,  0.0, 1.0
+            x, 0.0, z,       0.0, 0.0,
+            x+1, 0.0, z+1,   1.0, 1.0,
+            x, 0.0, z+1,     0.0, 1.0
           );
-          // Ceiling (y=1)
+          // Ceiling quad (y=1)
           ceilingVerts.push(
-            x, 1.0, z,    0.0, 0.0,
-            x+1,1.0, z,   1.0, 0.0,
-            x+1,1.0, z+1, 1.0, 1.0,
+            x, 1.0, z,       0.0, 0.0,
+            x+1, 1.0, z,     1.0, 0.0,
+            x+1, 1.0, z+1,   1.0, 1.0,
 
-            x, 1.0, z,    0.0, 0.0,
-            x+1,1.0, z+1, 1.0, 1.0,
-            x,1.0, z+1,   0.0, 1.0
+            x, 1.0, z,       0.0, 0.0,
+            x+1, 1.0, z+1,   1.0, 1.0,
+            x, 1.0, z+1,     0.0, 1.0
           );
           let cell = maze[z][x];
           if (cell === '#' || cell === 'B' || cell === 'E') {
@@ -329,52 +315,52 @@
             if (z === 0 || !(['#','B','E'].includes(maze[z-1][x]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
-                x, 0.0, z,    0.0, 0.0,
-                x+1, 0.0, z,  1.0, 0.0,
-                x+1, 1.0, z,  1.0, 1.0,
+                x, 0.0, z,       0.0, 0.0,
+                x+1, 0.0, z,     1.0, 0.0,
+                x+1, 1.0, z,     1.0, 1.0,
 
-                x, 0.0, z,    0.0, 0.0,
-                x+1, 1.0, z,  1.0, 1.0,
-                x, 1.0, z,    0.0, 1.0
+                x, 0.0, z,       0.0, 0.0,
+                x+1, 1.0, z,     1.0, 1.0,
+                x, 1.0, z,       0.0, 1.0
               );
             }
             // South wall
-            if (z === rows - 1 || !(['#','B','E'].includes(maze[z+1][x]))) {
+            if (z === rows-1 || !(['#','B','E'].includes(maze[z+1][x]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
-                x, 0.0, z+1,    0.0, 0.0,
-                x+1, 0.0, z+1,  1.0, 0.0,
-                x+1, 1.0, z+1,  1.0, 1.0,
+                x, 0.0, z+1,     0.0, 0.0,
+                x+1, 0.0, z+1,   1.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
 
-                x, 0.0, z+1,    0.0, 0.0,
-                x+1, 1.0, z+1,  1.0, 1.0,
-                x, 1.0, z+1,    0.0, 1.0
+                x, 0.0, z+1,     0.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x, 1.0, z+1,     0.0, 1.0
               );
             }
             // West wall
             if (x === 0 || !(['#','B','E'].includes(maze[z][x-1]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
-                x, 0.0, z,   0.0, 0.0,
-                x, 0.0, z+1, 1.0, 0.0,
-                x, 1.0, z+1, 1.0, 1.0,
+                x, 0.0, z,       0.0, 0.0,
+                x, 0.0, z+1,     1.0, 0.0,
+                x, 1.0, z+1,     1.0, 1.0,
 
-                x, 0.0, z,   0.0, 0.0,
-                x, 1.0, z+1, 1.0, 1.0,
-                x, 1.0, z,   0.0, 1.0
+                x, 0.0, z,       0.0, 0.0,
+                x, 1.0, z+1,     1.0, 1.0,
+                x, 1.0, z,       0.0, 1.0
               );
             }
             // East wall
-            if (x === cols - 1 || !(['#','B','E'].includes(maze[z][x+1]))) {
+            if (x === cols-1 || !(['#','B','E'].includes(maze[z][x+1]))) {
               let target = isExit ? wallExitVerts : wallBrickVerts;
               target.push(
-                x+1, 0.0, z,   0.0, 0.0,
-                x+1, 0.0, z+1, 1.0, 0.0,
-                x+1, 1.0, z+1, 1.0, 1.0,
+                x+1, 0.0, z,     0.0, 0.0,
+                x+1, 0.0, z+1,   1.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
 
-                x+1, 0.0, z,   0.0, 0.0,
-                x+1, 1.0, z+1, 1.0, 1.0,
-                x+1, 1.0, z,   0.0, 1.0
+                x+1, 0.0, z,     0.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x+1, 1.0, z,     0.0, 1.0
               );
             }
           }
@@ -389,39 +375,29 @@
     }
 
     // ====================================================
-    // Global variables for WebGL
+    // Global variables for WebGL and game state.
     // ====================================================
     let gl, shaderProgram;
     let attribLocations, uniformLocations;
-    let buffers = {}; // To hold the VBOs
+    let buffers = {};
     let textures = {};
-    let mazeData;
-    let geometry;
-
-    // Player state
-    let playerPos = [2.5, 0.0, 2.5];  // [x, y, z]
-    let playerAngle = 0;  // in degrees
-
-    // Maze parameters
-    const mazeWidth = 40;
-    const mazeHeight = 40;
-    const maxRooms = 10;
-    const roomMinSize = 3;
-    const roomMaxSize = 7;
+    let mazeData, geometry;
+    let playerPos = [2.5, 0.0, 2.5]; // starting position
+    let playerAngle = 0; // in degrees
+    const mazeWidth = 40, mazeHeight = 40, maxRooms = 10, roomMinSize = 3, roomMaxSize = 7;
 
     // ====================================================
-    // Initialization function
+    // Initialization: set up canvas, WebGL, shaders, textures, maze, buffers, and input.
     // ====================================================
     function init() {
       const canvas = document.getElementById("glCanvas");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
       gl = canvas.getContext("webgl");
       if (!gl) {
-        alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+        alert("WebGL not supported.");
         return;
       }
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
-
       shaderProgram = initShaderProgram(gl, vsSource, fsSource);
       attribLocations = {
         aPosition: gl.getAttribLocation(shaderProgram, "aPosition"),
@@ -434,31 +410,25 @@
         uTexture: gl.getUniformLocation(shaderProgram, "uTexture")
       };
 
-      // Load textures
+      // Load textures from the /textures folder.
       textures.ground = loadTexture(gl, "/textures/ground.jpg");
       textures.roof   = loadTexture(gl, "/textures/roof.jpg");
       textures.brick  = loadTexture(gl, "/textures/brick.jpg");
 
-      // Generate maze and build geometry
+      // Generate the maze (log it to console) and build geometry.
       mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, 42);
       console.log("Maze:");
       mazeData.maze.forEach(row => console.log(row));
       geometry = buildMazeGeometry(mazeData.maze);
       initBuffers();
 
-      // Set clear color and enable depth testing.
       gl.clearColor(0.5, 0.5, 0.5, 1.0);
       gl.enable(gl.DEPTH_TEST);
 
-      // Set up keyboard event listeners for player controls.
       window.addEventListener("keydown", onKeyDown, false);
-
       requestAnimationFrame(render);
     }
 
-    // ====================================================
-    // Initialize buffers for each geometry group.
-    // ====================================================
     function initBuffers() {
       buffers.floor = initBuffer(geometry.floor);
       buffers.ceiling = initBuffer(geometry.ceiling);
@@ -477,15 +447,14 @@
     }
 
     // ====================================================
-    // Handle keyboard input
+    // Keyboard controls: W/S to move and A/D to turn.
     // ====================================================
     function onKeyDown(e) {
-      const rad = glMatrix.glMatrix.toRadian(90);
-      let dir = [Math.sin(glMatrix.glMatrix.toRadian(playerAngle)), 0, Math.cos(glMatrix.glMatrix.toRadian(playerAngle))];
+      let rad = glMatrix.glMatrix.toRadian(playerAngle);
+      let dir = [Math.sin(rad), 0, Math.cos(rad)];
       switch(e.key) {
         case "w":
         case "ArrowUp":
-          // Move forward if no collision (for simplicity, we do basic bounds check)
           playerPos[0] += dir[0] * 0.5;
           playerPos[2] += dir[2] * 0.5;
           break;
@@ -509,46 +478,42 @@
     // Render loop
     // ====================================================
     function render(now) {
-      now *= 0.001; // convert to seconds
+      now *= 0.001;
       gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
       gl.useProgram(shaderProgram);
 
-      // Set up projection matrix.
+      // Set up the perspective projection matrix.
       const fieldOfView = glMatrix.glMatrix.toRadian(70);
-      const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-      const zNear = 0.1;
-      const zFar = 100.0;
+      const aspect = gl.canvas.width / gl.canvas.height;
+      const zNear = 0.1, zFar = 100.0;
       const projectionMatrix = glMatrix.mat4.create();
       glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
       gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
 
-      // Set up view matrix (camera positioned at player's position, looking in player's direction)
+      // Set up the view matrix; the eye is raised by 0.5 so the camera is above the floor.
       const viewMatrix = glMatrix.mat4.create();
-      const eye = playerPos;
+      const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
       const center = [
         playerPos[0] + Math.sin(glMatrix.glMatrix.toRadian(playerAngle)),
-        playerPos[1],
+        playerPos[1] + 0.5,
         playerPos[2] + Math.cos(glMatrix.glMatrix.toRadian(playerAngle))
       ];
       glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
       gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
 
-      // Draw floor
+      // Draw all objects.
       drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
-      // Draw ceiling
       drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
-      // Draw brick walls
       drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
-      // Draw exit walls (using the same brick texture)
       drawObject(buffers.wallExit, textures.brick, glMatrix.mat4.create());
 
       requestAnimationFrame(render);
     }
 
     // ====================================================
-    // Draw a given buffer with a texture and model matrix.
+    // Draw a given buffer with a texture.
     // ====================================================
     function drawObject(bufferObj, texture, modelMatrix) {
       gl.bindBuffer(gl.ARRAY_BUFFER, bufferObj.buffer);
@@ -563,9 +528,6 @@
       gl.drawArrays(gl.TRIANGLES, 0, bufferObj.vertexCount);
     }
 
-    // ====================================================
-    // Start the game once the page loads.
-    // ====================================================
     window.onload = init;
   </script>
 </body>
