@@ -2,24 +2,42 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Maze Game WebGL</title>
+  <title>Maze Game WebGL with Map Overlay</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    canvas { display: block; width: 100vw; height: 100vh; }
+    /* The WebGL canvas fills the viewport */
+    #glCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+    }
+    /* The overlay canvas sits above the WebGL canvas and passes through pointer events */
+    #mazeCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      pointer-events: none;
+    }
   </style>
-  <!-- Load gl-matrix-min.js from the same folder -->
+  <!-- Load gl-matrix-min.js (make sure this file is in the same folder) -->
   <script src="gl-matrix-min.js"></script>
 </head>
 <body>
   <canvas id="glCanvas"></canvas>
+  <canvas id="mazeCanvas"></canvas>
   <script>
-    // ====================================================
-    // A local conversion function (in case glMatrix.toRadian is not available)
-    // ====================================================
+    // ============================ WebGL and Maze Game Code ============================
+    // Utility function
     function toRadian(deg) {
       return deg * Math.PI / 180;
     }
-
+    
     // ====================================================
     // Shader sources
     // ====================================================
@@ -35,7 +53,7 @@
           vTexCoord = aTexCoord;
       }
     `;
-
+    
     const fsSource = `
       precision mediump float;
       varying vec2 vTexCoord;
@@ -44,22 +62,22 @@
           gl_FragColor = texture2D(uTexture, vTexCoord);
       }
     `;
-
+    
     // ====================================================
-    // Utility functions for shader compilation
+    // Shader utility functions
     // ====================================================
     function loadShader(gl, type, source) {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);
       gl.compileShader(shader);
       if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        alert('Error compiling shader: ' + gl.getShaderInfoLog(shader));
+        alert("Error compiling shader: " + gl.getShaderInfoLog(shader));
         gl.deleteShader(shader);
         return null;
       }
       return shader;
     }
-
+    
     function initShaderProgram(gl, vsSource, fsSource) {
       const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
       const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
@@ -68,14 +86,14 @@
       gl.attachShader(shaderProgram, fragmentShader);
       gl.linkProgram(shaderProgram);
       if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-        alert('Error linking shader program: ' + gl.getProgramInfoLog(shaderProgram));
+        alert("Error linking shader program: " + gl.getProgramInfoLog(shaderProgram));
         return null;
       }
       return shaderProgram;
     }
-
+    
     // ====================================================
-    // Texture loader (loads from same folder as HTML)
+    // Texture loader (assumes images are in the same folder)
     // ====================================================
     function loadTexture(gl, url) {
       const texture = gl.createTexture();
@@ -86,7 +104,6 @@
       const pixel = new Uint8Array([255, 255, 255]); // white
       gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height,
                     border, srcFormat, srcType, pixel);
-
       const image = new Image();
       image.onload = function() {
         gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -102,17 +119,17 @@
       };
       image.onerror = function() {
         console.error("Failed to load texture: " + url);
-      }
+      };
       image.src = url;
       return texture;
     }
-
+    
     function isPowerOf2(value) {
       return (value & (value - 1)) === 0;
     }
-
+    
     // ====================================================
-    // Maze generation code (JavaScript version)
+    // Maze generation code
     // ====================================================
     class Rect {
       constructor(x, y, w, h) {
@@ -127,12 +144,12 @@
                 this.y1 < other.y2 && this.y2 > other.y1);
       }
     }
-
-    // Returns an object with maze (array of strings) and rooms (array of Rect)
+    
+    // Returns an object with maze (an array of strings) and rooms (array of Rect)
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
       if (seed !== undefined) {
         console.log("Creating map with seed:", seed);
-        // Note: For repeatability you would need a seeded RNG.
+        // For repeatability, you would use a seeded RNG.
       }
       let mapGrid = [];
       for (let i = 0; i < height; i++) {
@@ -185,29 +202,7 @@
         }
         rooms.push(newRoom);
       }
-      if (rooms.length > 0) {
-        let lastRoom = rooms[rooms.length - 1];
-        let roomW = lastRoom.x2 - lastRoom.x1;
-        let roomH = lastRoom.y2 - lastRoom.y1;
-        if (roomW < 6 || roomH < 6) {
-          for (let i = 0; i < 100; i++) {
-            let w = 6, h = 6;
-            let x = Math.floor(Math.random() * (width - w - 2)) + 1;
-            let y = Math.floor(Math.random() * (height - h - 2)) + 1;
-            let newRoom = new Rect(x, y, w, h);
-            if (!rooms.some(room => newRoom.intersect(room))) {
-              for (let i = newRoom.y1 + 1; i < newRoom.y2 - 1; i++) {
-                for (let j = newRoom.x1 + 1; j < newRoom.x2 - 1; j++) {
-                  mapGrid[i][j] = ' ';
-                }
-              }
-              rooms.push(newRoom);
-              lastRoom = newRoom;
-              break;
-            }
-          }
-        }
-      }
+      // Place exit in the last room.
       if (rooms.length > 0) {
         let lastRoom = rooms[rooms.length - 1];
         let roomW = lastRoom.x2 - lastRoom.x1;
@@ -283,10 +278,10 @@
       let maze = mapGrid.map(row => row.join(''));
       return { maze: maze, rooms: rooms };
     }
-
+    
     // ====================================================
     // Build geometry from maze data.
-    // Each vertex is composed of 3 position components and 2 texture coordinates.
+    // Each vertex: 3 position components and 2 texture coordinates.
     // ====================================================
     function buildMazeGeometry(maze) {
       let floorVerts = [];
@@ -302,7 +297,7 @@
             x, 0.0, z,       0.0, 0.0,
             x+1, 0.0, z,     1.0, 0.0,
             x+1, 0.0, z+1,   1.0, 1.0,
-
+    
             x, 0.0, z,       0.0, 0.0,
             x+1, 0.0, z+1,   1.0, 1.0,
             x, 0.0, z+1,     0.0, 1.0
@@ -312,7 +307,7 @@
             x, 1.0, z,       0.0, 0.0,
             x+1, 1.0, z,     1.0, 0.0,
             x+1, 1.0, z+1,   1.0, 1.0,
-
+    
             x, 1.0, z,       0.0, 0.0,
             x+1, 1.0, z+1,   1.0, 1.0,
             x, 1.0, z+1,     0.0, 1.0
@@ -327,7 +322,7 @@
                 x, 0.0, z,       0.0, 0.0,
                 x+1, 0.0, z,     1.0, 0.0,
                 x+1, 1.0, z,     1.0, 1.0,
-
+    
                 x, 0.0, z,       0.0, 0.0,
                 x+1, 1.0, z,     1.0, 1.0,
                 x, 1.0, z,       0.0, 1.0
@@ -340,7 +335,7 @@
                 x, 0.0, z+1,     0.0, 0.0,
                 x+1, 0.0, z+1,   1.0, 0.0,
                 x+1, 1.0, z+1,   1.0, 1.0,
-
+    
                 x, 0.0, z+1,     0.0, 0.0,
                 x+1, 1.0, z+1,   1.0, 1.0,
                 x, 1.0, z+1,     0.0, 1.0
@@ -353,7 +348,7 @@
                 x, 0.0, z,       0.0, 0.0,
                 x, 0.0, z+1,     1.0, 0.0,
                 x, 1.0, z+1,     1.0, 1.0,
-
+    
                 x, 0.0, z,       0.0, 0.0,
                 x, 1.0, z+1,     1.0, 1.0,
                 x, 1.0, z,       0.0, 1.0
@@ -366,7 +361,7 @@
                 x+1, 0.0, z,     0.0, 0.0,
                 x+1, 0.0, z+1,   1.0, 0.0,
                 x+1, 1.0, z+1,   1.0, 1.0,
-
+    
                 x+1, 0.0, z,     0.0, 0.0,
                 x+1, 1.0, z+1,   1.0, 1.0,
                 x+1, 1.0, z,     0.0, 1.0
@@ -382,7 +377,7 @@
         wallExit: new Float32Array(wallExitVerts)
       };
     }
-
+    
     // ====================================================
     // Global variables for WebGL and game state.
     // ====================================================
@@ -391,10 +386,12 @@
     let buffers = {};
     let textures = {};
     let mazeData, geometry;
-    let playerPos = [2.5, 0.0, 2.5]; // starting position
+    let discovered = []; // 2D array for discovery (all true for demo)
+    let playerPos = [2.5, 0.0, 2.5]; // starting position (x, y, z)
     let playerAngle = 0; // in degrees
     const mazeWidth = 40, mazeHeight = 40, maxRooms = 10, roomMinSize = 3, roomMaxSize = 7;
-
+    let fullMapVisible = false;  // toggle flag for full map overlay
+    
     // ====================================================
     // Initialization: set up canvas, WebGL, shaders, textures, maze, buffers, and input.
     // ====================================================
@@ -418,33 +415,41 @@
         uModel: gl.getUniformLocation(shaderProgram, "uModel"),
         uTexture: gl.getUniformLocation(shaderProgram, "uTexture")
       };
-
-      // Load textures from the same folder.
+    
+      // Load textures (ensure these image files are in your folder)
       textures.ground = loadTexture(gl, "ground.jpg");
       textures.roof   = loadTexture(gl, "roof.jpg");
       textures.brick  = loadTexture(gl, "brick.jpg");
-
+    
       // Generate the maze and build geometry.
       mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, 42);
       console.log("Maze:");
       mazeData.maze.forEach(row => console.log(row));
       geometry = buildMazeGeometry(mazeData.maze);
       initBuffers();
-
+    
+      // Create the discovered array (in a real game this would update as the player explores)
+      for (let i = 0; i < mazeData.maze.length; i++) {
+        discovered[i] = [];
+        for (let j = 0; j < mazeData.maze[i].length; j++) {
+          discovered[i][j] = true;
+        }
+      }
+    
       gl.clearColor(0.5, 0.5, 0.5, 1.0);
       gl.enable(gl.DEPTH_TEST);
-
+    
       window.addEventListener("keydown", onKeyDown, false);
       requestAnimationFrame(render);
     }
-
+    
     function initBuffers() {
       buffers.floor = initBuffer(geometry.floor);
       buffers.ceiling = initBuffer(geometry.ceiling);
       buffers.wallBrick = initBuffer(geometry.wallBrick);
       buffers.wallExit = initBuffer(geometry.wallExit);
     }
-
+    
     function initBuffer(dataArray) {
       const buffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -454,9 +459,9 @@
         vertexCount: dataArray.length / 5  // each vertex: 3 position + 2 texcoord
       };
     }
-
+    
     // ====================================================
-    // Keyboard controls: W/S to move and A/D to turn.
+    // Keyboard controls: W/S to move, A/D to turn, and M to toggle full map.
     // ====================================================
     function onKeyDown(e) {
       let rad = toRadian(playerAngle);
@@ -480,28 +485,33 @@
         case "ArrowRight":
           playerAngle = (playerAngle + 270) % 360;
           break;
+        case "m":
+        case "M":
+          // Toggle the full map overlay on/off.
+          fullMapVisible = !fullMapVisible;
+          break;
       }
     }
-
+    
     // ====================================================
-    // Render loop
+    // Render loop: render the 3D scene and update the overlay.
     // ====================================================
     function render(now) {
       now *= 0.001; // convert to seconds
       gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
+    
       gl.useProgram(shaderProgram);
-
-      // Set up the perspective projection matrix.
+    
+      // Set up perspective projection matrix.
       const fieldOfView = toRadian(70);
       const aspect = gl.canvas.width / gl.canvas.height;
       const zNear = 0.1, zFar = 100.0;
       const projectionMatrix = glMatrix.mat4.create();
       glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
       gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
-
-      // Set up the view matrix; raise the camera slightly above the floor.
+    
+      // Set up view matrix (camera slightly above floor).
       const viewMatrix = glMatrix.mat4.create();
       const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
       const center = [
@@ -511,18 +521,21 @@
       ];
       glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
       gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
-
+    
       // Draw objects.
       drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
       drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
       drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
       drawObject(buffers.wallExit, textures.brick, glMatrix.mat4.create());
-
+    
+      // Update 2D overlay (minimap and possibly full map).
+      updateOverlay();
+    
       requestAnimationFrame(render);
     }
-
+    
     // ====================================================
-    // Draw a given buffer with a texture.
+    // Draw a given object using its buffer and texture.
     // ====================================================
     function drawObject(bufferObj, texture, modelMatrix) {
       gl.bindBuffer(gl.ARRAY_BUFFER, bufferObj.buffer);
@@ -536,7 +549,136 @@
       gl.uniform1i(uniformLocations.uTexture, 0);
       gl.drawArrays(gl.TRIANGLES, 0, bufferObj.vertexCount);
     }
-
+    
+    // ============================ 2D Overlay (Full Map & Minimap) Code ============================
+    // These functions are adapted from your demo code.
+    
+    // Draws the full maze map overlay.
+    function drawFullMap(ctx, maze, discovered, playerPos, fullMapOffsetX, fullMapOffsetY, windowWidth, windowHeight) {
+      const cellSize = 12;
+      const cols = maze[0].length;
+      const rows = maze.length;
+      const mapWidth = cols * cellSize;
+      const mapHeight = rows * cellSize;
+      
+      // Center the map in the canvas with the given offsets.
+      const startX = (windowWidth - mapWidth) / 2 + fullMapOffsetX;
+      const startY = (windowHeight - mapHeight) / 2 + fullMapOffsetY;
+      
+      // Draw a border around the map.
+      ctx.fillStyle = "black";
+      ctx.fillRect(startX - 2, startY - 2, mapWidth + 4, mapHeight + 4);
+      
+      // Draw each cell. The vertical coordinate is flipped so row 0 is at the bottom.
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          let x = startX + j * cellSize;
+          let y = startY + (rows - 1 - i) * cellSize;
+          
+          if (discovered[i][j]) {
+            const cell = maze[i].charAt(j);
+            if (cell === "#") {
+              ctx.fillStyle = "rgb(77,77,77)"; // dark gray wall
+            } else if (cell === "E") {
+              ctx.fillStyle = "red";          // exit
+            } else if (cell === "B") {
+              ctx.fillStyle = "black";
+            } else {
+              ctx.fillStyle = "white";        // floor
+            }
+          } else {
+            ctx.fillStyle = "black";
+          }
+          ctx.fillRect(x, y, cellSize, cellSize);
+        }
+      }
+      
+      // Draw the player icon "@" centered in the cell.
+      const playerCellX = Math.floor(playerPos.x);
+      const playerCellY = Math.floor(playerPos.y);
+      const iconX = startX + playerCellX * cellSize + (cellSize - 8) / 2;
+      const iconY = startY + (rows - 1 - playerCellY) * cellSize + (cellSize - 13) / 2;
+      ctx.fillStyle = "green";
+      ctx.font = "bold 12px monospace";
+      ctx.fillText("@", iconX, iconY + 12);
+    }
+    
+    // Draws a minimap (a small region centered on the player).
+    function drawMinimap(ctx, maze, discovered, playerPos, windowWidth, windowHeight) {
+      const regionSize = 12;  // minimap region in cells
+      const cellSize = 8;     // pixel size for each minimap cell
+      const margin = 10;      // margin from edge
+      
+      const mapWidthPixels = regionSize * cellSize;
+      const mapHeightPixels = regionSize * cellSize;
+      // Position the minimap at the bottom-right corner.
+      const startX = windowWidth - mapWidthPixels - margin;
+      const startY = margin;
+      
+      // Draw a border.
+      ctx.fillStyle = "black";
+      ctx.fillRect(startX - 2, startY - 2, mapWidthPixels + 4, mapHeightPixels + 4);
+    
+      // Compute the starting maze cell for the minimap region (centered on the player).
+      const startCellX = Math.floor(playerPos.x) - Math.floor(regionSize / 2);
+      const startCellY = Math.floor(playerPos.y) - Math.floor(regionSize / 2);
+      
+      for (let i = 0; i < regionSize; i++) {
+        for (let j = 0; j < regionSize; j++) {
+          const mazeY = startCellY + i;
+          const mazeX = startCellX + j;
+          if (mazeY < 0 || mazeY >= maze.length || mazeX < 0 || mazeX >= maze[0].length) {
+            continue;
+          }
+          const x = startX + j * cellSize;
+          const y = startY + (regionSize - 1 - i) * cellSize;
+          if (discovered[mazeY][mazeX]) {
+            const cell = maze[mazeY].charAt(mazeX);
+            if (cell === "#") {
+              ctx.fillStyle = "rgb(77,77,77)";
+            } else if (cell === "E") {
+              ctx.fillStyle = "red";
+            } else if (cell === "B") {
+              ctx.fillStyle = "black";
+            } else {
+              ctx.fillStyle = "white";
+            }
+          } else {
+            ctx.fillStyle = "black";
+          }
+          ctx.fillRect(x, y, cellSize, cellSize);
+        }
+      }
+      
+      // Draw the player icon on the minimap.
+      const relX = (Math.floor(playerPos.x) - startCellX);
+      const relY = (regionSize - 1) - (Math.floor(playerPos.y) - startCellY);
+      const iconX = startX + relX * cellSize + (cellSize - 8) / 2;
+      const iconY = startY + relY * cellSize + (cellSize - 13) / 2;
+      ctx.fillStyle = "green";
+      ctx.font = "bold 12px monospace";
+      ctx.fillText("@", iconX, iconY + 12);
+    }
+    
+    // Update the overlay canvas by drawing the minimap and, if toggled, the full map.
+    function updateOverlay() {
+      const overlay = document.getElementById("mazeCanvas");
+      // Ensure the overlay canvas covers the window.
+      overlay.width = window.innerWidth;
+      overlay.height = window.innerHeight;
+      const ctx = overlay.getContext("2d");
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      
+      // The player position for the map is taken from the x (column) and z (row) coordinates.
+      const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+      if (fullMapVisible) {
+        // Draw the full maze map centered in the canvas.
+        drawFullMap(ctx, mazeData.maze, discovered, pPos, 0, 0, overlay.width, overlay.height);
+      }
+      // Always draw the minimap.
+      drawMinimap(ctx, mazeData.maze, discovered, pPos, overlay.width, overlay.height);
+    }
+    
     // ====================================================
     // Start the game on window load.
     // ====================================================
