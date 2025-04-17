@@ -123,7 +123,7 @@
       return (value & (value - 1)) === 0;
     }
 
-    // ============================ Maze Generation Code ============================
+    // ============================ Maze Generation Code (from previous code) ============================
     class Rect {
       constructor(x, y, w, h) {
         this.x1 = x;
@@ -137,9 +137,19 @@
                 this.y1 < other.y2 && this.y2 > other.y1);
       }
     }
+    // Creates the maze as an array of strings and returns a rooms array.
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
-      if (seed !== undefined) console.log("Creating map with seed:", seed);
-      let mapGrid = Array.from({ length: height }, () => Array.from({ length: width }, () => '#'));
+      if (seed !== undefined) {
+        console.log("Creating map with seed:", seed);
+      }
+      let mapGrid = [];
+      for (let i = 0; i < height; i++) {
+        let row = [];
+        for (let j = 0; j < width; j++) {
+          row.push('#');
+        }
+        mapGrid.push(row);
+      }
       let rooms = [];
       for (let r = 0; r < maxRooms; r++) {
         let w = Math.floor(Math.random() * (roomMaxSize - roomMinSize + 1)) + roomMinSize;
@@ -148,9 +158,17 @@
         let y = Math.floor(Math.random() * (height - h - 2)) + 1;
         let newRoom = new Rect(x, y, w, h);
         if (rooms.some(room => newRoom.intersect(room))) continue;
-        for (let i = newRoom.y1 + (w>2&&h>2?1:0); i < newRoom.y2 - (w>2&&h>2?1:0); i++) {
-          for (let j = newRoom.x1 + (w>2&&h>2?1:0); j < newRoom.x2 - (w>2&&h>2?1:0); j++) {
-            mapGrid[i][j] = ' ';
+        if (w > 2 && h > 2) {
+          for (let i = newRoom.y1 + 1; i < newRoom.y2 - 1; i++) {
+            for (let j = newRoom.x1 + 1; j < newRoom.x2 - 1; j++) {
+              mapGrid[i][j] = ' ';
+            }
+          }
+        } else {
+          for (let i = newRoom.y1; i < newRoom.y2; i++) {
+            for (let j = newRoom.x1; j < newRoom.x2; j++) {
+              mapGrid[i][j] = ' ';
+            }
           }
         }
         if (rooms.length > 0) {
@@ -158,84 +176,190 @@
           let [prevX, prevY] = prev.center;
           let [newX, newY] = newRoom.center;
           if (Math.random() < 0.5) {
-            for (let xCorr = Math.min(prevX, newX); xCorr <= Math.max(prevX, newX); xCorr++) mapGrid[prevY][xCorr] = ' ';
-            for (let yCorr = Math.min(prevY, newY); yCorr <= Math.max(prevY, newY); yCorr++) mapGrid[yCorr][newX] = ' ';
+            for (let xCorr = Math.min(prevX, newX); xCorr <= Math.max(prevX, newX); xCorr++) {
+              mapGrid[prevY][xCorr] = ' ';
+            }
+            for (let yCorr = Math.min(prevY, newY); yCorr <= Math.max(prevY, newY); yCorr++) {
+              mapGrid[yCorr][newX] = ' ';
+            }
           } else {
-            for (let yCorr = Math.min(prevY, newY); yCorr <= Math.max(prevY, newY); yCorr++) mapGrid[yCorr][prevX] = ' ';
-            for (let xCorr = Math.min(prevX, newX); xCorr <= Math.max(prevX, newY); xCorr++) mapGrid[newY][xCorr] = ' ';
+            for (let yCorr = Math.min(prevY, newY); yCorr <= Math.max(prevY, newY); yCorr++) {
+              mapGrid[yCorr][prevX] = ' ';
+            }
+            for (let xCorr = Math.min(prevX, newX); xCorr <= Math.max(prevX, newX); xCorr++) {
+              mapGrid[newY][xCorr] = ' ';
+            }
           }
         }
         rooms.push(newRoom);
       }
+      // Place an exit in the last room.
       if (rooms.length > 0) {
         let lastRoom = rooms[rooms.length - 1];
-        let center = lastRoom.center;
-        let candidates = [];
-        if (lastRoom.x2-lastRoom.x1>=6 && lastRoom.y2-lastRoom.y1>=6) {
-          candidates = [
-            [lastRoom.x1+1, lastRoom.y1+1],
-            [lastRoom.x2-2, lastRoom.y1+1],
-            [lastRoom.x1+1, lastRoom.y2-2],
-            [lastRoom.x2-2, lastRoom.y2-2]
+        let roomW = lastRoom.x2 - lastRoom.x1;
+        let roomH = lastRoom.y2 - lastRoom.y1;
+        let exitX, exitY;
+        if (roomW >= 6 && roomH >= 6) {
+          let candidates = [
+            [lastRoom.x1 + 1, lastRoom.y1 + 1],
+            [lastRoom.x2 - 2, lastRoom.y1 + 1],
+            [lastRoom.x1 + 1, lastRoom.y2 - 2],
+            [lastRoom.x2 - 2, lastRoom.y2 - 2]
           ];
+          let center = lastRoom.center;
+          let maxDist = -1;
+          for (let candidate of candidates) {
+            let d = Math.abs(candidate[0] - center[0]) + Math.abs(candidate[1] - center[1]);
+            if (d > maxDist) { maxDist = d; exitX = candidate[0]; exitY = candidate[1]; }
+          }
         } else {
-          for (let y = lastRoom.y1+1; y < lastRoom.y2-1; y++) {
-            candidates.push([lastRoom.x1+1, y]);
-            candidates.push([lastRoom.x2-2, y]);
-          }
-        }
-        let exit = candidates.reduce((best, c) => {
-          let d = Math.abs(c[0]-center[0])+Math.abs(c[1]-center[1]);
-          return d>(best.d||-1)?{c,d}:{best};
-        }, {}).c;
-        if (exit) mapGrid[exit[1]][exit[0]]='E';
-      }
-      for (let i=0;i<height;i++) for (let j=0;j<width;j++) {
-        if (mapGrid[i][j]==='#') {
-          let roomCorner=false;
-          for (let room of rooms) for (let c of [[room.x1,room.y1],[room.x2-1,room.y1],[room.x1,room.y2-1],[room.x2-1,room.y2-1]]) {
-            if (c[0]===j&&c[1]===i) roomCorner=true;
-          }
-          if (roomCorner) continue;
-          let adjOpen=false;
-          for (let d of [[-1,0],[1,0],[0,-1],[0,1]]) {
-            let nx=j+d[0], ny=i+d[1];
-            if (nx>=0&&nx<width&&ny>=0&&ny<height) {
-              if (mapGrid[ny][nx]===' '||mapGrid[ny][nx]==='E') adjOpen=true;
+          let candidates = [];
+          if (lastRoom.x2 - lastRoom.x1 > 2) {
+            for (let y = lastRoom.y1 + 1; y < lastRoom.y2 - 1; y++) {
+              candidates.push([lastRoom.x1 + 1, y]);
+              candidates.push([lastRoom.x2 - 2, y]);
             }
           }
-          if (!adjOpen) mapGrid[i][j]='B';
+          if (candidates.length === 0) {
+            [exitX, exitY] = lastRoom.center;
+          } else {
+            let center = lastRoom.center;
+            let minDist = Infinity;
+            for (let candidate of candidates) {
+              let d = Math.abs(candidate[0] - center[0]) + Math.abs(candidate[1] - center[1]);
+              if (d < minDist) { minDist = d; exitX = candidate[0]; exitY = candidate[1]; }
+            }
+          }
+        }
+        mapGrid[exitY][exitX] = 'E';
+      }
+      // Convert isolated wall cells to 'B'.
+      for (let i = 0; i < height; i++) {
+        for (let j = 0; j < width; j++) {
+          if (mapGrid[i][j] === '#') {
+            let isRoomCorner = false;
+            for (let room of rooms) {
+              let corners = [
+                [room.x1, room.y1],
+                [room.x2 - 1, room.y1],
+                [room.x1, room.y2 - 1],
+                [room.x2 - 1, room.y2 - 1]
+              ];
+              for (let c of corners) {
+                if (c[0] === j && c[1] === i) { isRoomCorner = true; break; }
+              }
+              if (isRoomCorner) break;
+            }
+            if (isRoomCorner) continue;
+            let adjacentOpen = false;
+            let dirs = [[-1,0], [1,0], [0,-1], [0,1]];
+            for (let d of dirs) {
+              let nx = j + d[0], ny = i + d[1];
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (mapGrid[ny][nx] === ' ' || mapGrid[ny][nx] === 'E') {
+                  adjacentOpen = true;
+                  break;
+                }
+              }
+            }
+            if (!adjacentOpen) {
+              mapGrid[i][j] = 'B';
+            }
+          }
         }
       }
-      return { maze: mapGrid.map(r=>r.join('')), rooms };
+      let maze = mapGrid.map(row => row.join(''));
+      return { maze: maze, rooms: rooms };
     }
 
     // ============================ Build Maze Geometry ============================
     function buildMazeGeometry(maze) {
-      let floorVerts = [], ceilingVerts = [], wallBrickVerts = [], wallExitVerts = [];
-      const rows = maze.length, cols=maze[0].length;
-      for (let z=0;z<rows;z++) for (let x=0;x<cols;x++) {
-        // floor & ceiling
-        [[floorVerts,0],[ceilingVerts,1]].forEach(([arr,y])=>{
-          arr.push(x,y,z,0,0, x+1,y,z,1,0, x+1,y,z+1,1,1, x,y,z,0,0, x+1,y,z+1,1,1, x,y,z+1,0,1);
-        });
-        let cell=maze[z][x]; if (['#','B','E'].includes(cell)) {
-          let isExit = cell==='E';
-          [['north',z===0||!['#','B','E'].includes(maze[z-1][x])],[
-           'south',z===rows-1||!['#','B','E'].includes(maze[z+1][x])],[
-           'west',x===0||!['#','B','E'].includes(maze[z][x-1])],[
-           'east',x===cols-1||!['#','B','E'].includes(maze[z][x+1])]
-          ].forEach(([dir,cond])=>{
-            if (!cond) return;
-            let target = isExit? wallExitVerts: wallBrickVerts;
-            if (dir==='north') target.push(x,0,z,0,0, x+1,0,z,1,0, x+1,1,z,1,1, x,0,z,0,0, x+1,1,z,1,1, x,1,z,0,1);
-            if (dir==='south') target.push(x,0,z+1,0,0, x+1,0,z+1,1,0, x+1,1,z+1,1,1, x,0,z+1,0,0, x+1,1,z+1,1,1, x,1,z+1,0,1);
-            if (dir==='west')  target.push(x,0,z,0,0, x,0,z+1,1,0, x,1,z+1,1,1, x,0,z,0,0, x,1,z+1,1,1, x,1,z,0,1);
-            if (dir==='east')  target.push(x+1,0,z,0,0, x+1,0,z+1,1,0, x+1,1,z+1,1,1, x+1,0,z,0,0, x+1,1,z+1,1,1, x+1,1,z,0,1);
-          });
+      let floorVerts = [];
+      let ceilingVerts = [];
+      let wallBrickVerts = [];
+      let wallExitVerts = [];
+      const rows = maze.length;
+      const cols = maze[0].length;
+      for (let z = 0; z < rows; z++) {
+        for (let x = 0; x < cols; x++) {
+          // Floor (y=0)
+          floorVerts.push(
+            x, 0.0, z,       0.0, 0.0,
+            x+1, 0.0, z,     1.0, 0.0,
+            x+1, 0.0, z+1,   1.0, 1.0,
+            x, 0.0, z,       0.0, 0.0,
+            x+1, 0.0, z+1,   1.0, 1.0,
+            x, 0.0, z+1,     0.0, 1.0
+          );
+          // Ceiling (y=1)
+          ceilingVerts.push(
+            x, 1.0, z,       0.0, 0.0,
+            x+1, 1.0, z,     1.0, 0.0,
+            x+1, 1.0, z+1,   1.0, 1.0,
+            x, 1.0, z,       0.0, 0.0,
+            x+1, 1.0, z+1,   1.0, 1.0,
+            x, 1.0, z+1,     0.0, 1.0
+          );
+          let cell = maze[z][x];
+          if (cell === '#' || cell === 'B' || cell === 'E') {
+            let isExit = (cell === 'E');
+            // North wall
+            if (z === 0 || !(['#', 'B', 'E'].includes(maze[z-1][x]))) {
+              let target = isExit ? wallExitVerts : wallBrickVerts;
+              target.push(
+                x, 0.0, z,       0.0, 0.0,
+                x+1, 0.0, z,     1.0, 0.0,
+                x+1, 1.0, z,     1.0, 1.0,
+                x, 0.0, z,       0.0, 0.0,
+                x+1, 1.0, z,     1.0, 1.0,
+                x, 1.0, z,       0.0, 1.0
+              );
+            }
+            // South wall
+            if (z === rows-1 || !(['#', 'B', 'E'].includes(maze[z+1][x]))) {
+              let target = isExit ? wallExitVerts : wallBrickVerts;
+              target.push(
+                x, 0.0, z+1,     0.0, 0.0,
+                x+1, 0.0, z+1,   1.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x, 0.0, z+1,     0.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x, 1.0, z+1,     0.0, 1.0
+              );
+            }
+            // West wall
+            if (x === 0 || !(['#', 'B', 'E'].includes(maze[z][x-1]))) {
+              let target = isExit ? wallExitVerts : wallBrickVerts;
+              target.push(
+                x, 0.0, z,       0.0, 0.0,
+                x, 0.0, z+1,     1.0, 0.0,
+                x, 1.0, z+1,     1.0, 1.0,
+                x, 0.0, z,       0.0, 0.0,
+                x, 1.0, z+1,     1.0, 1.0,
+                x, 1.0, z,       0.0, 1.0
+              );
+            }
+            // East wall
+            if (x === cols-1 || !(['#', 'B', 'E'].includes(maze[z][x+1]))) {
+              let target = isExit ? wallExitVerts : wallBrickVerts;
+              target.push(
+                x+1, 0.0, z,     0.0, 0.0,
+                x+1, 0.0, z+1,   1.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x+1, 0.0, z,     0.0, 0.0,
+                x+1, 1.0, z+1,   1.0, 1.0,
+                x+1, 1.0, z,     0.0, 1.0
+              );
+            }
+          }
         }
       }
-      return { floor: new Float32Array(floorVerts), ceiling: new Float32Array(ceilingVerts), wallBrick: new Float32Array(wallBrickVerts), wallExit: new Float32Array(wallExitVerts) };
+      return {
+        floor: new Float32Array(floorVerts),
+        ceiling: new Float32Array(ceilingVerts),
+        wallBrick: new Float32Array(wallBrickVerts),
+        wallExit: new Float32Array(wallExitVerts)
+      };
     }
 
     // ============================ Global Variables ============================
@@ -249,10 +373,683 @@
     let playerAngle = 0;
     const mazeWidth = 100, mazeHeight = 100, maxRooms = 40, roomMinSize = 3, roomMaxSize = 8;
     let fullMapVisible = false;
-    let helpVisible = true;  // show help overlay on load
+    let helpVisible = false;
 
-    // (rest of bot mode, pathfinding, movement, rendering, overlay code unchanged...)
-    // …
+    // Animation variables for smooth movement.
+    let animatingTranslation = false;
+    let translationStart = 0;
+    const translationDuration = 100; // milliseconds
+    let startPos = [0, 0, 0];
+    let targetPos = [0, 0, 0];
+
+    let animatingRotation = false;
+    let rotationStart = 0;
+    const rotationDuration = 200;
+    let startAngle = 0;
+    let targetAngle = 0;
+
+    // Variables for map dragging.
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    // ----------- Bot Mode Global Variables -----------
+    let botMode = false;
+    let botPath = [];
+    let botPathIndex = 0;
+    let selectedAlgorithm = "bfs"; // Options: "bfs", "dfs", "astar", "explore"
+
+    // ============================ Pathfinding Helper Functions ============================
+    // Returns a string key for coordinate objects.
+    function coordKey(cell) {
+      return cell.x + "," + cell.y;
+    }
+    // Return neighbors (cells with floor ' ' or exit 'E')
+    function getNeighbors(cell, maze) {
+      let nbrs = [];
+      const directions = [
+        {x: 1, y: 0},
+        {x: -1, y: 0},
+        {x: 0, y: 1},
+        {x: 0, y: -1}
+      ];
+      for (let d of directions) {
+        let nx = cell.x + d.x, ny = cell.y + d.y;
+        if (ny >= 0 && ny < maze.length && nx >= 0 && nx < maze[0].length) {
+          let c = maze[ny].charAt(nx);
+          if (c === ' ' || c === 'E') {
+            nbrs.push({x: nx, y: ny});
+          }
+        }
+      }
+      return nbrs;
+    }
+    // BFS pathfinding
+    function bfsPath(start, goal, maze) {
+      let queue = [start];
+      let cameFrom = {};
+      cameFrom[coordKey(start)] = null;
+      while (queue.length > 0) {
+        let current = queue.shift();
+        if (current.x === goal.x && current.y === goal.y) {
+          let path = [];
+          while (current !== null) {
+            path.push(current);
+            current = cameFrom[coordKey(current)];
+          }
+          path.reverse();
+          return path;
+        }
+        for (let n of getNeighbors(current, maze)) {
+          if (!(coordKey(n) in cameFrom)) {
+            cameFrom[coordKey(n)] = current;
+            queue.push(n);
+          }
+        }
+      }
+      return [];
+    }
+    // DFS pathfinding
+    function dfsPath(start, goal, maze) {
+      let stack = [start];
+      let cameFrom = {};
+      cameFrom[coordKey(start)] = null;
+      while (stack.length > 0) {
+        let current = stack.pop();
+        if (current.x === goal.x && current.y === goal.y) {
+          let path = [];
+          while (current !== null) {
+            path.push(current);
+            current = cameFrom[coordKey(current)];
+          }
+          path.reverse();
+          return path;
+        }
+        for (let n of getNeighbors(current, maze)) {
+          if (!(coordKey(n) in cameFrom)) {
+            cameFrom[coordKey(n)] = current;
+            stack.push(n);
+          }
+        }
+      }
+      return [];
+    }
+    // A* pathfinding
+    function heuristic(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    }
+    function astarPath(start, goal, maze) {
+      let frontier = [{cell: start, priority: 0}];
+      let cameFrom = {};
+      cameFrom[coordKey(start)] = null;
+      let costSoFar = {};
+      costSoFar[coordKey(start)] = 0;
+      while (frontier.length > 0) {
+        frontier.sort((a, b) => a.priority - b.priority);
+        let current = frontier.shift().cell;
+        if (current.x === goal.x && current.y === goal.y) {
+          let path = [];
+          while (current !== null) {
+            path.push(current);
+            current = cameFrom[coordKey(current)];
+          }
+          path.reverse();
+          return path;
+        }
+        for (let n of getNeighbors(current, maze)) {
+          let newCost = costSoFar[coordKey(current)] + 1;
+          if (!(coordKey(n) in costSoFar) || newCost < costSoFar[coordKey(n)]) {
+            costSoFar[coordKey(n)] = newCost;
+            let priority = newCost + heuristic(n, goal);
+            frontier.push({cell: n, priority: priority});
+            cameFrom[coordKey(n)] = current;
+          }
+        }
+      }
+      return [];
+    }
+    // Helper: Determine if cell is inside a room (rooms have x1, y1, x2, y2)
+    function cellInRoom(cell, room) {
+      return cell.x >= room.x1 && cell.x < room.x2 && cell.y >= room.y1 && cell.y < room.y2;
+    }
+    // Explore mode pathfinding: visit all room centers before exit.
+    function explorePath(start, goal, maze, rooms) {
+      // Identify the room that contains the exit.
+      let exitRoom = null;
+      for (let room of rooms) {
+        if (cellInRoom(goal, room)) {
+          exitRoom = room;
+          break;
+        }
+      }
+      let exitRoomCenter = null;
+      let otherRoomCenters = [];
+      for (let room of rooms) {
+        let center = {x: Math.floor(room.center[0]), y: Math.floor(room.center[1])};
+        if (exitRoom && room === exitRoom) {
+          exitRoomCenter = center;
+        } else {
+          otherRoomCenters.push(center);
+        }
+      }
+      // Remove duplicate centers.
+      otherRoomCenters = otherRoomCenters.filter((v, i, a) =>
+        a.findIndex(t => t.x === v.x && t.y === v.y) === i
+      );
+      let overallPath = [];
+      let current = start;
+      if (exitRoomCenter && heuristic(start, exitRoomCenter) > 1) {
+        let segment = bfsPath(current, exitRoomCenter, maze);
+        overallPath = overallPath.concat(segment);
+        current = exitRoomCenter;
+      } else {
+        if (exitRoomCenter && !otherRoomCenters.some(c => c.x === exitRoomCenter.x && c.y === exitRoomCenter.y)) {
+          otherRoomCenters.push(exitRoomCenter);
+          exitRoomCenter = null;
+        }
+      }
+      while (otherRoomCenters.length > 0) {
+        if (exitRoom && cellInRoom(current, exitRoom) && heuristic(current, goal) <= 1) {
+          otherRoomCenters.sort((a, b) => heuristic(b, goal) - heuristic(a, goal));
+        } else {
+          otherRoomCenters.sort((a, b) => heuristic(current, a) - heuristic(current, b));
+        }
+        let target = otherRoomCenters.shift();
+        let segment = bfsPath(current, target, maze);
+        if (segment.length > 0) {
+          if (overallPath.length > 0 && segment[0].x === overallPath[overallPath.length - 1].x &&
+              segment[0].y === overallPath[overallPath.length - 1].y) {
+            overallPath = overallPath.concat(segment.slice(1));
+          } else {
+            overallPath = overallPath.concat(segment);
+          }
+          current = target;
+        }
+      }
+      let finalSegment = bfsPath(current, goal, maze);
+      if (finalSegment.length > 0) {
+        if (overallPath.length > 0 && finalSegment[0].x === overallPath[overallPath.length - 1].x &&
+            finalSegment[0].y === overallPath[overallPath.length - 1].y) {
+          overallPath = overallPath.concat(finalSegment.slice(1));
+        } else {
+          overallPath = overallPath.concat(finalSegment);
+        }
+      }
+      return overallPath;
+    }
+    // Compute bot path based on current algorithm selection.
+    function computeBotPath() {
+      let exitCell = null;
+      for (let i = 0; i < mazeData.maze.length; i++) {
+        for (let j = 0; j < mazeData.maze[i].length; j++) {
+          if (mazeData.maze[i].charAt(j) === 'E') {
+            exitCell = { x: j, y: i };
+            break;
+          }
+        }
+        if (exitCell !== null) break;
+      }
+      if (!exitCell) {
+        botPath = [];
+        return;
+      }
+      let start = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+      switch (selectedAlgorithm) {
+        case "bfs":
+          botPath = bfsPath(start, exitCell, mazeData.maze);
+          break;
+        case "dfs":
+          botPath = dfsPath(start, exitCell, mazeData.maze);
+          break;
+        case "astar":
+          botPath = astarPath(start, exitCell, mazeData.maze);
+          break;
+        case "explore":
+          botPath = explorePath(start, exitCell, mazeData.maze, mazeData.rooms);
+          break;
+        default:
+          botPath = bfsPath(start, exitCell, mazeData.maze);
+      }
+      botPathIndex = 0;
+      console.log("New bot path computed using " + selectedAlgorithm.toUpperCase() + " algorithm:", botPath);
+    }
+
+    // ============================ Collision Detection ============================
+    function canMove(newX, newZ) {
+      const mazeRows = mazeData.maze.length;
+      const mazeCols = mazeData.maze[0].length;
+      if (newX >= 0 && newX < mazeCols && newZ >= 0 && newZ < mazeRows) {
+         const cell = mazeData.maze[Math.floor(newZ)].charAt(Math.floor(newX));
+         return (cell !== '#' && cell !== 'B');
+      }
+      return false;
+    }
+
+    // ============================ Maze Restart Function ============================
+    function restartGame() {
+      console.log("Exit reached! Restarting game with new map.");
+      let newSeed = Date.now();
+      mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, newSeed);
+      mazeData.maze.forEach(row => console.log(row));
+      discovered = [];
+      for (let i = 0; i < mazeData.maze.length; i++) {
+        discovered[i] = [];
+        for (let j = 0; j < mazeData.maze[i].length; j++) {
+          discovered[i][j] = true;
+        }
+      }
+      geometry = buildMazeGeometry(mazeData.maze);
+      initBuffers();
+      if (mazeData.rooms && mazeData.rooms.length > 0) {
+        let spawnRoom = mazeData.rooms[0];
+        playerPos[0] = spawnRoom.center[0] + 0.5;
+        playerPos[2] = spawnRoom.center[1] + 0.5;
+      }
+      playerAngle = 0;
+      dragOffsetX = 0;
+      dragOffsetY = 0;
+      // Reset bot mode variables
+      if (botMode) computeBotPath();
+    }
+
+    // ============================ Mouse Event Handlers for Dragging ============================
+    function onMouseDown(e) {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+    function onMouseMove(e) {
+      if (!isDragging) return;
+      let dx = e.clientX - dragStartX;
+      let dy = e.clientY - dragStartY;
+      dragOffsetX += dx;
+      dragOffsetY += dy;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+    function onMouseUp(e) {
+      isDragging = false;
+    }
+
+    // ============================ Keyboard Controls ============================
+    function onKeyDown(e) {
+      // 1) Always handle toggles & bot/algorithm keys:
+      switch (e.key) {
+        case "b": case "B":
+          botMode = !botMode;
+          console.log("Bot mode " + (botMode ? "enabled" : "disabled"));
+          if (botMode) computeBotPath();
+          return;
+        case "1": case "2": case "3": case "4":
+          const algMap = { "1":"bfs","2":"dfs","3":"astar","4":"explore" };
+          selectedAlgorithm = algMap[e.key];
+          console.log("Algorithm selected:", selectedAlgorithm.toUpperCase());
+          if (botMode) computeBotPath();
+          return;
+        case "m": case "M":
+          fullMapVisible = !fullMapVisible;
+          return;
+        case "h": case "H":
+          helpVisible = !helpVisible;
+          return;
+      }
+
+      // 2) Block manual movement if bot is running or animation in progress:
+      if (botMode || animatingTranslation || animatingRotation) return;
+
+      // 3) Manual movement controls:
+      let rad = toRadian(playerAngle);
+      switch(e.key) {
+        case "w": case "ArrowUp":
+          {
+            let offset = [Math.sin(rad),0,Math.cos(rad)];
+            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
+            if (canMove(nx,nz)) {
+              animatingTranslation=true;
+              translationStart=performance.now();
+              startPos=[...playerPos];
+              targetPos=[nx,playerPos[1],nz];
+            }
+          }
+          break;
+        case "s": case "ArrowDown":
+          {
+            let offset=[-Math.sin(rad),0,-Math.cos(rad)];
+            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
+            if (canMove(nx,nz)) {
+              animatingTranslation=true;
+              translationStart=performance.now();
+              startPos=[...playerPos];
+              targetPos=[nx,playerPos[1],nz];
+            }
+          }
+          break;
+        case "a": case "ArrowLeft":
+          animatingRotation=true;
+          rotationStart=performance.now();
+          startAngle=playerAngle;
+          targetAngle=(playerAngle+90)%360;
+          break;
+        case "d": case "ArrowRight":
+          animatingRotation=true;
+          rotationStart=performance.now();
+          startAngle=playerAngle;
+          targetAngle=(playerAngle+270)%360;
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown, false);
+
+    // ============================ Initialization ============================
+    function init() {
+      const canvas = document.getElementById("glCanvas");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      gl = canvas.getContext("webgl");
+      if (!gl) {
+        alert("WebGL not supported.");
+        return;
+      }
+      shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+      attribLocations = {
+        aPosition: gl.getAttribLocation(shaderProgram, "aPosition"),
+        aTexCoord: gl.getAttribLocation(shaderProgram, "aTexCoord")
+      };
+      uniformLocations = {
+        uProjection: gl.getUniformLocation(shaderProgram, "uProjection"),
+        uView: gl.getUniformLocation(shaderProgram, "uView"),
+        uModel: gl.getUniformLocation(shaderProgram, "uModel"),
+        uTexture: gl.getUniformLocation(shaderProgram, "uTexture")
+      };
+
+      textures.ground = loadTexture(gl, "ground.jpg");
+      textures.roof   = loadTexture(gl, "roof.jpg");
+      textures.brick  = loadTexture(gl, "brick.jpg");
+      textures.exit   = loadTexture(gl, "exit.png");
+
+      mazeData = createMap(mazeWidth, mazeHeight, maxRooms, roomMinSize, roomMaxSize, 42);
+      mazeData.maze.forEach(row => console.log(row));
+
+      if (mazeData.rooms && mazeData.rooms.length > 0) {
+        let spawnRoom = mazeData.rooms[0];
+        playerPos[0] = spawnRoom.center[0] + 0.5;
+        playerPos[2] = spawnRoom.center[1] + 0.5;
+      }
+
+      geometry = buildMazeGeometry(mazeData.maze);
+      initBuffers();
+
+      for (let i = 0; i < mazeData.maze.length; i++) {
+        discovered[i] = [];
+        for (let j = 0; j < mazeData.maze[i].length; j++) {
+          discovered[i][j] = true;
+        }
+      }
+
+      gl.clearColor(0.5, 0.5, 0.5, 1.0);
+      gl.enable(gl.DEPTH_TEST);
+
+      const overlay = document.getElementById("mazeCanvas");
+      overlay.addEventListener("mousedown", onMouseDown, false);
+      overlay.addEventListener("mousemove", onMouseMove, false);
+      overlay.addEventListener("mouseup", onMouseUp, false);
+      overlay.addEventListener("mouseleave", onMouseUp, false);
+
+      requestAnimationFrame(render);
+    }
+    function initBuffers() {
+      buffers.floor = initBuffer(geometry.floor);
+      buffers.ceiling = initBuffer(geometry.ceiling);
+      buffers.wallBrick = initBuffer(geometry.wallBrick);
+      buffers.wallExit = initBuffer(geometry.wallExit);
+    }
+    function initBuffer(dataArray) {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, dataArray, gl.STATIC_DRAW);
+      return {
+        buffer: buffer,
+        vertexCount: dataArray.length / 5
+      };
+    }
+
+    // ============================ Render Loop ============================
+    function render(now) {
+      now *= 0.001;
+      let currentTime = performance.now();
+
+      // Process ongoing movement animations.
+      if (animatingTranslation) {
+        let t = (currentTime - translationStart) / translationDuration;
+        if (t >= 1) { t = 1; animatingTranslation = false; }
+        playerPos[0] = lerp(startPos[0], targetPos[0], t);
+        playerPos[1] = lerp(startPos[1], targetPos[1], t);
+        playerPos[2] = lerp(startPos[2], targetPos[2], t);
+      }
+      if (animatingRotation) {
+        let t = (currentTime - rotationStart) / rotationDuration;
+        if (t >= 1) { t = 1; animatingRotation = false; }
+        playerAngle = lerpAngle(startAngle, targetAngle, t);
+      }
+
+      // -------- Bot mode automatic movement logic -----------
+      if (botMode && !animatingTranslation && !animatingRotation) {
+        if (botPath && botPath.length > 0 && botPathIndex < botPath.length) {
+          let currentCell = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+          let nextCell = botPath[botPathIndex];
+          if (currentCell.x === nextCell.x && currentCell.y === nextCell.y) {
+            botPathIndex++;
+            if (botPathIndex < botPath.length) {
+              nextCell = botPath[botPathIndex];
+            } else {
+              nextCell = null;
+            }
+          }
+          if (nextCell) {
+            let dx = (nextCell.x + 0.5) - playerPos[0];
+            let dz = (nextCell.y + 0.5) - playerPos[2];
+            let rawAngle = Math.atan2(dx, dz) * (180 / Math.PI);
+            rawAngle = (rawAngle + 360) % 360;
+            let desiredAngle = Math.round(rawAngle / 90) * 90 % 360;
+            let angleDiff = (desiredAngle - playerAngle + 360) % 360;
+            if (angleDiff !== 0) {
+              animatingRotation = true;
+              rotationStart = performance.now();
+              startAngle = playerAngle;
+              targetAngle = desiredAngle;
+              playerAngle = targetAngle;
+            } else {
+              let offset = [Math.sin(toRadian(playerAngle)), 0, Math.cos(toRadian(playerAngle))];
+              let newX = playerPos[0] + offset[0];
+              let newZ = playerPos[2] + offset[2];
+              if (canMove(newX, newZ)) {
+                animatingTranslation = true;
+                translationStart = performance.now();
+                startPos = [playerPos[0], playerPos[1], playerPos[2]];
+                targetPos = [newX, playerPos[1], newZ];
+              } else {
+                computeBotPath();
+              }
+              botPathIndex++;
+            }
+          }
+        } else {
+          // If no (or finished) bot path, recompute it.
+          computeBotPath();
+        }
+      }
+
+      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.useProgram(shaderProgram);
+
+      const fieldOfView = toRadian(90);
+      const aspect = gl.canvas.width / gl.canvas.height;
+      const zNear = 0.1, zFar = 100.0;
+      const projectionMatrix = glMatrix.mat4.create();
+      glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+      gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
+
+      const viewMatrix = glMatrix.mat4.create();
+      const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
+      const center = [
+        playerPos[0] + Math.sin(toRadian(playerAngle)),
+        playerPos[1] + 0.5,
+        playerPos[2] + Math.cos(toRadian(playerAngle))
+      ];
+      glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
+      gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
+
+      drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
+      drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
+      drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
+      drawObject(buffers.wallExit, textures.exit, glMatrix.mat4.create());
+
+      updateOverlay();
+
+      // If player is on an exit cell and not moving, restart the maze.
+      if (!animatingTranslation && !animatingRotation) {
+        let currentCellX = Math.floor(playerPos[0]);
+        let currentCellZ = Math.floor(playerPos[2]);
+        if (mazeData.maze[currentCellZ].charAt(currentCellX) === 'E') {
+          restartGame();
+        }
+      }
+      requestAnimationFrame(render);
+    }
+
+    function drawObject(bufferObj, texture, modelMatrix) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufferObj.buffer);
+      gl.enableVertexAttribArray(attribLocations.aPosition);
+      gl.vertexAttribPointer(attribLocations.aPosition, 3, gl.FLOAT, false, 5 * 4, 0);
+      gl.enableVertexAttribArray(attribLocations.aTexCoord);
+      gl.vertexAttribPointer(attribLocations.aTexCoord, 2, gl.FLOAT, false, 5 * 4, 3 * 4);
+      gl.uniformMatrix4fv(uniformLocations.uModel, false, modelMatrix);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(uniformLocations.uTexture, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, bufferObj.vertexCount);
+    }
+
+    // ============================ 2D Overlay Functions ============================
+    function drawFullMap(ctx, maze, discovered, playerPos, fullMapOffsetX, fullMapOffsetY, windowWidth, windowHeight) {
+      const cellSize = 12;
+      const cols = maze[0].length;
+      const rows = maze.length;
+      const mapWidth = cols * cellSize;
+      const mapHeight = rows * cellSize;
+      ctx.fillStyle = "black";
+      ctx.fillRect(fullMapOffsetX - 2, fullMapOffsetY - 2, mapWidth + 4, mapHeight + 4);
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          let x = fullMapOffsetX + j * cellSize;
+          let y = fullMapOffsetY + i * cellSize;
+          if (discovered[i][j]) {
+            const cell = maze[i].charAt(j);
+            if (cell === "#") ctx.fillStyle = "rgb(77,77,77)";
+            else if (cell === "E") ctx.fillStyle = "red";
+            else if (cell === "B") ctx.fillStyle = "black";
+            else ctx.fillStyle = "white";
+          } else {
+            ctx.fillStyle = "black";
+          }
+          ctx.fillRect(x, y, cellSize, cellSize);
+        }
+      }
+      const playerCellX = Math.floor(playerPos.x);
+      const playerCellY = Math.floor(playerPos.y);
+      const iconX = fullMapOffsetX + playerCellX * cellSize + (cellSize - 8) / 2;
+      const iconY = fullMapOffsetY + playerCellY * cellSize + (cellSize - 13) / 2;
+      ctx.fillStyle = "green";
+      ctx.font = "bold 12px monospace";
+      ctx.fillText("@", iconX, iconY + 12);
+    }
+    function drawMinimap(ctx, maze, discovered, playerPos, windowWidth, windowHeight) {
+      const regionSize = 12;
+      const cellSize = 8;
+      const margin = 10;
+      const mapWidthPixels = regionSize * cellSize;
+      const mapHeightPixels = regionSize * cellSize;
+      const startX = windowWidth - mapWidthPixels - margin;
+      const startY = margin;
+      ctx.fillStyle = "black";
+      ctx.fillRect(startX - 2, startY - 2, mapWidthPixels + 4, mapHeightPixels + 4);
+      const startCellX = Math.floor(playerPos.x) - Math.floor(regionSize / 2);
+      const startCellY = Math.floor(playerPos.y) - Math.floor(regionSize / 2);
+      for (let i = 0; i < regionSize; i++) {
+        for (let j = 0; j < regionSize; j++) {
+          const mazeY = startCellY + i;
+          const mazeX = startCellX + j;
+          if (mazeY < 0 || mazeY >= maze.length || mazeX < 0 || mazeX >= maze[0].length) continue;
+          const x = startX + j * cellSize;
+          const y = startY + i * cellSize;
+          if (discovered[mazeY][mazeX]) {
+            const cell = maze[mazeY].charAt(mazeX);
+            if (cell === "#") ctx.fillStyle = "rgb(77,77,77)";
+            else if (cell === "E") ctx.fillStyle = "red";
+            else if (cell === "B") ctx.fillStyle = "black";
+            else ctx.fillStyle = "white";
+          } else {
+            ctx.fillStyle = "black";
+          }
+          ctx.fillRect(x, y, cellSize, cellSize);
+        }
+      }
+      const relX = Math.floor(playerPos.x) - startCellX;
+      const relY = Math.floor(playerPos.y) - startCellY;
+      const iconX = startX + relX * cellSize + (cellSize - 8) / 2;
+      const iconY = startY + relY * cellSize + (cellSize - 13) / 2;
+      ctx.fillStyle = "green";
+      ctx.font = "bold 12px monospace";
+      ctx.fillText("@", iconX, iconY + 12);
+    }
+    function updateOverlay() {
+      const overlay = document.getElementById("mazeCanvas");
+      overlay.width = window.innerWidth;
+      overlay.height = window.innerHeight;
+      const ctx = overlay.getContext("2d");
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      const cellSize = 12;
+      const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+      if (fullMapVisible) {
+        let fullMapOffsetX = (window.innerWidth / 2) - (pPos.x * cellSize + cellSize / 2) + dragOffsetX;
+        let fullMapOffsetY = (window.innerHeight / 2) - (pPos.y * cellSize + cellSize / 2) + dragOffsetY;
+        drawFullMap(ctx, mazeData.maze, discovered, pPos, fullMapOffsetX, fullMapOffsetY, overlay.width, overlay.height);
+      }
+      drawMinimap(ctx, mazeData.maze, discovered, pPos, overlay.width, overlay.height);
+      if (helpVisible) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        const boxWidth = 300, boxHeight = 180;
+        ctx.fillRect(10, 10, boxWidth, boxHeight);
+        ctx.fillStyle = "white";
+        ctx.font = "16px monospace";
+        const lineHeight = 20;
+        let startX = 20, startY = 35;
+        const instructions = [
+          "Controls:",
+          "W/Arrow Up: Move forward",
+          "S/Arrow Down: Move backward",
+          "A/Arrow Left: Turn left",
+          "D/Arrow Right: Turn right",
+          "M: Toggle full map",
+          "H: Toggle help",
+          "B: Toggle bot mode",
+          "1: BFS pathfinding",
+          "2: DFS pathfinding",
+          "3: A* pathfinding",
+          "4: Explore mode",
+          "Drag mouse: Pan full map"
+        ];
+        for (let i = 0; i < instructions.length; i++) {
+          ctx.fillText(instructions[i], startX, startY + i * lineHeight);
+        }
+      }
+      ctx.fillStyle = "white";
+      ctx.font = "16px monospace";
+      ctx.fillText("Hint: Press H for help", 10, overlay.height - 20);
+    }
 
     window.onload = init;
   </script>
