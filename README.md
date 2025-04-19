@@ -14,7 +14,7 @@ A 3D maze exploration game rendered using WebGL with:
 - Exit detection and automatic maze regeneration
 - Smooth player movement and rotation animations
 
-![screenshot](preview.png) <!-- Optional screenshot if available -->
+
 
 ---
 
