@@ -4,6 +4,14 @@
 ### Play it now: https://pemmyz.github.io/js_mazelabyrinth/js_mazelabyrinth.html
 
 
+---
+## Screenshots
+
+### Game
+![Game 1](screenshots/game_1.png)
+
+---
+
 # Maze Game WebGL
 
 A 3D maze exploration game rendered using WebGL with:
