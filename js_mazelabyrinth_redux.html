@@ -73,6 +73,7 @@
     `;
 
     // ============================ Shader Utility Functions ============================
+    // ... (loadShader, initShaderProgram - unchanged) ...
     function loadShader(gl, type, source) {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);
@@ -99,6 +100,7 @@
     }
 
     // ============================ Texture Loader ============================
+    // ... (loadTexture, isPowerOf2 - unchanged) ...
     function loadTexture(gl, url) {
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -142,7 +144,8 @@
       return (value & (value - 1)) === 0;
     }
 
-    // ============================ Maze Generation Code (from previous code) ============================
+    // ============================ Maze Generation Code ============================
+    // ... (Rect, createMap - unchanged) ...
     class Rect {
       constructor(x, y, w, h) {
         this.x1 = x;
@@ -157,7 +160,6 @@
                 this.y1 < other.y2 + 1 && this.y2 > other.y1 - 1);
       }
     }
-    // Creates the maze as an array of strings and returns a rooms array.
     function createMap(width, height, maxRooms, roomMinSize, roomMaxSize, seed) {
         // Use a simple pseudo-random number generator if seed is provided
         let rng = Math.random;
@@ -368,8 +370,8 @@
         return { maze: maze, rooms: rooms };
     }
 
-
     // ============================ Build Maze Geometry ============================
+    // ... (buildMazeGeometry - unchanged) ...
     function buildMazeGeometry(maze) {
       let floorVerts = [];
       let ceilingVerts = [];
@@ -463,6 +465,7 @@
       };
     }
 
+
     // ============================ Global Variables ============================
     let gl, shaderProgram;
     let attribLocations, uniformLocations;
@@ -479,7 +482,7 @@
     // Animation variables for smooth movement.
     let animatingTranslation = false;
     let translationStart = 0;
-    const translationDuration = 150; // milliseconds for movement step
+    const translationDuration = 50; // milliseconds for movement step
     let startPos = [0, 0, 0];
     let targetPos = [0, 0, 0];
 
@@ -507,8 +510,14 @@
     const countdownDuration = 7000; // milliseconds (7 seconds)
     let autoStarted = false;
 
+    // ----------- Continuous Movement State (NEW) -----------
+    const keysDown = {};
+    window.addEventListener("keydown", e => { keysDown[e.key.toLowerCase()] = true; onKeyDown(e); }); // Trigger original onKeyDown too
+    window.addEventListener("keyup",   e => { keysDown[e.key.toLowerCase()] = false; });
+
 
     // ============================ Pathfinding Helper Functions ============================
+    // ... (coordKey, getNeighbors, bfsPath, dfsPath, heuristic, astarPath, cellInRoom, explorePath, computeBotPath - unchanged) ...
     // Returns a string key for coordinate objects.
     function coordKey(cell) {
       return cell.x + "," + cell.y;
@@ -780,6 +789,7 @@
     }
 
     // ============================ Collision Detection ============================
+    // ... (canMove - unchanged) ...
     function canMove(newX, newZ) {
       const mazeRows = mazeData.maze.length;
       const mazeCols = mazeData.maze[0].length;
@@ -809,6 +819,7 @@
     }
 
     // ============================ Maze Restart Function ============================
+    // ... (restartGame - unchanged) ...
     function restartGame() {
       console.log("Exit reached! Restarting game with new map.");
       let newSeed = Date.now(); // Use timestamp for a new seed each time
@@ -872,6 +883,7 @@
     }
 
     // ============================ Mouse Event Handlers for Dragging ============================
+    // ... (onMouseDown, onMouseMove, onMouseUp - unchanged) ...
     function onMouseDown(e) {
       // Only allow dragging if the full map is visible
       if (fullMapVisible) {
@@ -899,12 +911,72 @@
       }
     }
 
-    // ============================ Keyboard Controls ============================
+    // ============================ Movement Helper Functions (NEW) ============================
+    const moveSpeed = 0.15; // Adjust step distance if needed
+    const turnSpeed = 90;   // Degrees per turn key press
+
+    function handleMoveForward() {
+        let rad = toRadian(playerAngle);
+        let forward = [Math.sin(rad) * moveSpeed, 0, Math.cos(rad) * moveSpeed];
+        let currentX = playerPos[0];
+        let currentZ = playerPos[2];
+        let targetX = currentX + forward[0];
+        let targetZ = currentZ + forward[2];
+        if (canMove(targetX, targetZ)) {
+            animatingTranslation=true;
+            translationStart=performance.now();
+            startPos=[...playerPos];
+            targetPos=[targetX, playerPos[1], targetZ];
+            // Timer reset is handled in onKeyDown
+        }
+    }
+
+    function handleMoveBackward() {
+        let rad = toRadian(playerAngle);
+        let forward = [Math.sin(rad) * moveSpeed, 0, Math.cos(rad) * moveSpeed];
+        let currentX = playerPos[0];
+        let currentZ = playerPos[2];
+        let targetX = currentX - forward[0];
+        let targetZ = currentZ - forward[2];
+        if (canMove(targetX, targetZ)) {
+            animatingTranslation=true;
+            translationStart=performance.now();
+            startPos=[...playerPos];
+            targetPos=[targetX, playerPos[1], targetZ];
+            // Timer reset is handled in onKeyDown
+        }
+    }
+
+    function handleTurnLeft() {
+        animatingRotation=true;
+        rotationStart=performance.now();
+        startAngle=playerAngle;
+        // Ensure target angle wraps correctly (e.g., 0 + 90 = 90, 270 + 90 = 0)
+        targetAngle = (playerAngle + turnSpeed + 360) % 360;
+        // Timer reset is handled in onKeyDown
+    }
+
+    function handleTurnRight() {
+        animatingRotation=true;
+        rotationStart=performance.now();
+        startAngle=playerAngle;
+        // Ensure target angle wraps correctly (e.g., 0 - 90 = 270)
+        targetAngle = (playerAngle - turnSpeed + 360) % 360;
+        // Timer reset is handled in onKeyDown
+    }
+
+
+    // ============================ Keyboard Controls (MODIFIED) ============================
     function onKeyDown(e) {
+      // This function now primarily handles toggles, algorithm selection,
+      // and resetting the auto-start timer on *any* relevant key press.
+      // Movement initiation is moved to the render loop based on keysDown state.
+
       let isManualAction = false; // Flag to check if countdown should reset
+      let key = e.key.toLowerCase();
 
       // 1) Always handle toggles & bot/algorithm keys:
-      switch (e.key.toLowerCase()) { // Use toLowerCase for case-insensitivity
+      switch (key) {
           case "b":
               botMode = !botMode;
               console.log("Bot mode " + (botMode ? "enabled" : "disabled"));
@@ -913,10 +985,10 @@
               }
               // Toggling bot mode IS a manual action
               isManualAction = true;
-              break; // Don't return yet, process isManualAction flag
+              break;
           case "1": case "2": case "3": case "4":
               const algMap = { "1":"bfs","2":"dfs","3":"astar","4":"explore" };
-              selectedAlgorithm = algMap[e.key];
+              selectedAlgorithm = algMap[key];
               console.log("Algorithm selected:", selectedAlgorithm.toUpperCase());
               if (botMode) {
                   computeBotPath(); // Recompute path if bot is already running
@@ -925,7 +997,7 @@
               if (!botMode) {
                   isManualAction = true;
               }
-              break; // Don't return yet
+              break;
           case "m":
               fullMapVisible = !fullMapVisible;
               // Reset drag offset when toggling map, keep center focused on player
@@ -941,83 +1013,29 @@
               return; // Return here
       }
 
-      // If a manual action occurred (like toggling bot or selecting algorithm when off), reset timer
+      // 2) Check if the pressed key is a movement key to reset the timer
+      //    (even if movement is blocked by bot/animation, pressing the key counts as manual input)
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+           isManualAction = true;
+      }
+
+      // 3) Reset auto-start timer if any manual action occurred
       if (isManualAction) {
            lastManualInputTime = performance.now();
            autoStarted = false; // Reset auto-start state
       }
 
-
-      // 2) Block manual movement if bot is running OR animation in progress:
-      if (botMode || animatingTranslation || animatingRotation) {
-           return; // Prevent movement if bot active or animating
-      }
-
-      // 3) Manual movement controls (only reached if bot is OFF and not animating):
-      let movedOrTurned = false;
-      let moveSpeed = 0.15; // Adjust step distance if needed
-      let turnSpeed = 90; // Degrees per turn key press
-
-      let rad = toRadian(playerAngle);
-      let forward = [Math.sin(rad) * moveSpeed, 0, Math.cos(rad) * moveSpeed];
-      let currentX = playerPos[0];
-      let currentZ = playerPos[2];
-
-      switch(e.key.toLowerCase()) { // Use toLowerCase for case-insensitivity
-          case "w": case "arrowup":
-            {
-              let targetX = currentX + forward[0];
-              let targetZ = currentZ + forward[2];
-              if (canMove(targetX, targetZ)) {
-                animatingTranslation=true;
-                translationStart=performance.now();
-                startPos=[...playerPos];
-                targetPos=[targetX, playerPos[1], targetZ];
-                movedOrTurned = true;
-              }
-            }
-            break;
-          case "s": case "arrowdown":
-            {
-              let targetX = currentX - forward[0];
-              let targetZ = currentZ - forward[2];
-              if (canMove(targetX, targetZ)) {
-                animatingTranslation=true;
-                translationStart=performance.now();
-                startPos=[...playerPos];
-                targetPos=[targetX, playerPos[1], targetZ];
-                movedOrTurned = true;
-              }
-            }
-            break;
-          case "a": case "arrowleft":
-            animatingRotation=true;
-            rotationStart=performance.now();
-            startAngle=playerAngle;
-            // Ensure target angle wraps correctly (e.g., 0 + 90 = 90, 270 + 90 = 0)
-            targetAngle = (playerAngle + turnSpeed + 360) % 360;
-            movedOrTurned = true;
-            break;
-          case "d": case "arrowright":
-            animatingRotation=true;
-            rotationStart=performance.now();
-            startAngle=playerAngle;
-            // Ensure target angle wraps correctly (e.g., 0 - 90 = 270)
-            targetAngle = (playerAngle - turnSpeed + 360) % 360;
-            movedOrTurned = true;
-            break;
-      }
-
-      // If any manual movement/turning occurred, reset the auto-start timer
-      if (movedOrTurned) {
-          lastManualInputTime = performance.now();
-          autoStarted = false; // Reset auto-start state
-      }
+      // Prevent default browser behavior for arrow keys, etc. if needed
+      // if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+      //    e.preventDefault();
+      // }
     }
-    window.addEventListener("keydown", onKeyDown, false);
+    // Remove the old direct window.addEventListener("keydown", onKeyDown, false);
+    // The new listeners are added with the keysDown definition
 
 
     // ============================ Update Discovered Cells ============================
+    // ... (updateDiscovered - unchanged) ...
     function updateDiscovered() {
       const px = Math.floor(playerPos[0]);
       const pz = Math.floor(playerPos[2]);
@@ -1069,6 +1087,7 @@
 
 
     // ============================ Initialization ============================
+    // ... (init, initBuffers - mostly unchanged, just add mouse listeners at the end) ...
     function init() {
       const canvas = document.getElementById("glCanvas");
       canvas.width = window.innerWidth;
@@ -1211,9 +1230,8 @@
       };
     }
 
-    // ============================ Render Loop ============================
+    // ============================ Render Loop (MODIFIED) ============================
     function render(now) { // 'now' is provided by requestAnimationFrame
-      //now *= 0.001; // Convert ms to seconds if needed for time-based logic
       let currentTime = performance.now(); // Use performance.now() for interval calculations
 
       // --- Update Player Position/Angle based on Animation ---
@@ -1244,104 +1262,120 @@
         }
       }
 
+      // -------- Handle Continuous Manual Movement (NEW) -----------
+      if (!botMode && !animatingTranslation && !animatingRotation) {
+          // Check keysDown state *every frame* to initiate movement if needed
+          if (keysDown["w"] || keysDown["arrowup"])    handleMoveForward();
+          else if (keysDown["s"] || keysDown["arrowdown"])  handleMoveBackward(); // Use else if to prevent moving fwd/back simultaneously
+
+          // Turning can happen independently of forward/back movement (or simultaneously if desired)
+          if (keysDown["a"] || keysDown["arrowleft"])  handleTurnLeft();
+          else if (keysDown["d"] || keysDown["arrowright"]) handleTurnRight(); // Use else if to prevent spinning wildly
+      }
+
+
       // -------- Bot mode automatic movement logic -----------
       if (botMode && !animatingTranslation && !animatingRotation) {
-        if (botPath && botPath.length > 0 && botPathIndex < botPath.length) {
-          let currentCell = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
-          let nextCell = botPath[botPathIndex];
+          // --- Bot logic remains the same ---
+          if (botPath && botPath.length > 0 && botPathIndex < botPath.length) {
+            let currentCell = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+            let nextCell = botPath[botPathIndex];
 
-          // Target the center of the next cell
-          let targetX = nextCell.x + 0.5;
-          let targetZ = nextCell.y + 0.5;
+            // Target the center of the next cell
+            let targetX = nextCell.x + 0.5;
+            let targetZ = nextCell.y + 0.5;
 
-          let dx = targetX - playerPos[0];
-          let dz = targetZ - playerPos[2];
-          let distSq = dx*dx + dz*dz;
+            let dx = targetX - playerPos[0];
+            let dz = targetZ - playerPos[2];
+            let distSq = dx*dx + dz*dz;
 
-           // If very close to the target cell center, advance to the next path node
-           if (distSq < 0.01) { // Threshold for reaching the cell center
-               botPathIndex++;
-               if (botPathIndex >= botPath.length) {
-                   console.log("Bot reached end of path.");
-                   // Reached end, path logic handled below (checking exit)
-               } else {
-                  // Continue to the next cell in the path
-                  nextCell = botPath[botPathIndex];
-                  targetX = nextCell.x + 0.5;
-                  targetZ = nextCell.y + 0.5;
-                  dx = targetX - playerPos[0];
-                  dz = targetZ - playerPos[2];
-               }
-           }
+             // If very close to the target cell center, advance to the next path node
+             if (distSq < 0.01) { // Threshold for reaching the cell center
+                 botPathIndex++;
+                 if (botPathIndex >= botPath.length) {
+                     console.log("Bot reached end of path.");
+                     // Reached end, path logic handled below (checking exit)
+                 } else {
+                    // Continue to the next cell in the path
+                    nextCell = botPath[botPathIndex];
+                    targetX = nextCell.x + 0.5;
+                    targetZ = nextCell.y + 0.5;
+                    dx = targetX - playerPos[0];
+                    dz = targetZ - playerPos[2];
+                 }
+             }
 
 
-          // Only proceed if there's a valid next cell
-          if (botPathIndex < botPath.length) {
-              // --- Bot Rotation ---
-              let desiredAngle = Math.atan2(dx, dz) * (180 / Math.PI); // Angle towards target
-              desiredAngle = (desiredAngle + 360) % 360;
+            // Only proceed if there's a valid next cell
+            if (botPathIndex < botPath.length) {
+                // --- Bot Rotation ---
+                let desiredAngle = Math.atan2(dx, dz) * (180 / Math.PI); // Angle towards target
+                desiredAngle = (desiredAngle + 360) % 360;
 
-              // Calculate the difference, handling wrap-around
-              let angleDiff = desiredAngle - playerAngle;
-              if (angleDiff > 180) angleDiff -= 360;
-              if (angleDiff <= -180) angleDiff += 360;
+                // Calculate the difference, handling wrap-around
+                let angleDiff = desiredAngle - playerAngle;
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff <= -180) angleDiff += 360;
 
-              // If significant rotation is needed, rotate first
-              if (Math.abs(angleDiff) > 1) { // Tolerance for angle alignment
-                  animatingRotation = true;
-                  rotationStart = performance.now();
-                  startAngle = playerAngle;
-                  // Snap to the closest cardinal direction if desired, or use exact angle
-                  // Snapping:
-                  // targetAngle = Math.round(desiredAngle / 90) * 90 % 360;
-                  // Exact:
-                  targetAngle = desiredAngle;
-              }
-              // --- Bot Translation ---
-              else { // If facing roughly the right way, move forward
-                  let moveRad = toRadian(playerAngle); // Move in current direction
-                  let moveStepX = Math.sin(moveRad) * 0.1; // Adjust bot speed/step
-                  let moveStepZ = Math.cos(moveRad) * 0.1;
-                  let nextPosX = playerPos[0] + moveStepX;
-                  let nextPosZ = playerPos[2] + moveStepZ;
+                // If significant rotation is needed, rotate first
+                if (Math.abs(angleDiff) > 1) { // Tolerance for angle alignment
+                    animatingRotation = true;
+                    rotationStart = performance.now();
+                    startAngle = playerAngle;
+                    // Snap to the closest cardinal direction if desired, or use exact angle
+                    // Snapping:
+                    // targetAngle = Math.round(desiredAngle / 90) * 90 % 360;
+                    // Exact:
+                    targetAngle = desiredAngle;
+                }
+                // --- Bot Translation ---
+                else { // If facing roughly the right way, move forward
+                    // Calculate intended next position based on target cell center
+                    // We want to move directly towards the target cell center now
+                    let moveRad = toRadian(desiredAngle); // Angle towards target
+                    let botMoveSpeed = 0.1; // Can adjust bot speed
+                    let moveStepX = Math.sin(moveRad) * botMoveSpeed;
+                    let moveStepZ = Math.cos(moveRad) * botMoveSpeed;
+                    let nextPosX = playerPos[0] + moveStepX;
+                    let nextPosZ = playerPos[2] + moveStepZ;
 
-                  // Check if the *intended* next grid cell is walkable before starting animation
-                  // This prevents bot trying to walk into a wall if path calculation was slightly off
-                  let checkX = Math.floor(targetX);
-                  let checkZ = Math.floor(targetZ);
-                  if (checkZ >= 0 && checkZ < mazeHeight && checkX >= 0 && checkX < mazeWidth &&
-                     (mazeData.maze[checkZ][checkX] === ' ' || mazeData.maze[checkZ][checkX] === 'E'))
-                  {
-                       // Use the calculated target cell center, not just one step
-                       if (canMove(targetX, targetZ)) { // Final check with collision buffer
-                          animatingTranslation = true;
-                          translationStart = performance.now();
-                          startPos = [...playerPos];
-                          // Animate towards the center of the target cell
-                          targetPos = [targetX, playerPos[1], targetZ];
-                       } else {
-                            console.warn("Bot collision detected despite path. Recomputing.");
-                            computeBotPath(); // Path is likely blocked, recompute
-                       }
-                  } else {
-                      console.warn("Bot target cell is invalid. Recomputing path.");
-                      computeBotPath(); // Target cell is bad, recompute
-                  }
-              }
+                    // Check if the *intended* next grid cell is walkable before starting animation
+                    let checkX = Math.floor(targetX);
+                    let checkZ = Math.floor(targetZ);
+                    if (checkZ >= 0 && checkZ < mazeHeight && checkX >= 0 && checkX < mazeWidth &&
+                       (mazeData.maze[checkZ][checkX] === ' ' || mazeData.maze[checkZ][checkX] === 'E'))
+                    {
+                         // Use the calculated target cell center, not just one step
+                         // Final collision check with buffer using target cell center
+                         if (canMove(targetX, targetZ)) {
+                            animatingTranslation = true;
+                            translationStart = performance.now();
+                            startPos = [...playerPos];
+                            // Animate towards the center of the target cell
+                            targetPos = [targetX, playerPos[1], targetZ];
+                         } else {
+                              console.warn("Bot collision detected despite path (target center). Recomputing.");
+                              computeBotPath(); // Path is likely blocked, recompute
+                         }
+                    } else {
+                        console.warn("Bot target cell is invalid. Recomputing path.");
+                        computeBotPath(); // Target cell is bad, recompute
+                    }
+                }
+            }
+          } else if (botMode) { // Bot is on, but path is empty or finished
+            // Check if we are on the exit cell first
+            let playerCellX = Math.floor(playerPos[0]);
+            let playerCellZ = Math.floor(playerPos[2]);
+             if (playerCellZ >= 0 && playerCellZ < mazeHeight && playerCellX >= 0 && playerCellX < mazeWidth &&
+                 mazeData.maze[playerCellZ].charAt(playerCellX) === 'E') {
+                 // Bot has reached the exit, let the exit logic handle restart
+             } else {
+                 // If bot is on but has no path (e.g., failed computation), try recomputing
+                 console.log("Bot has no path or finished prematurely. Recomputing...");
+                 computeBotPath();
+             }
           }
-        } else if (botMode) { // Bot is on, but path is empty or finished
-          // Check if we are on the exit cell first
-          let playerCellX = Math.floor(playerPos[0]);
-          let playerCellZ = Math.floor(playerPos[2]);
-           if (playerCellZ >= 0 && playerCellZ < mazeHeight && playerCellX >= 0 && playerCellX < mazeWidth &&
-               mazeData.maze[playerCellZ].charAt(playerCellX) === 'E') {
-               // Bot has reached the exit, let the exit logic handle restart
-           } else {
-               // If bot is on but has no path (e.g., failed computation), try recomputing
-               console.log("Bot has no path or finished prematurely. Recomputing...");
-               computeBotPath();
-           }
-        }
       }
 
 
@@ -1405,7 +1439,8 @@
       requestAnimationFrame(render);
     }
 
-    function drawObject(bufferObj, texture, modelMatrix) {
+    // ... (drawObject - unchanged) ...
+     function drawObject(bufferObj, texture, modelMatrix) {
       // Check if buffer and texture are valid before attempting to draw
       if (!bufferObj || !bufferObj.buffer || bufferObj.vertexCount === 0 || !texture) {
         //console.warn("Skipping drawObject: Invalid buffer or texture.");
@@ -1441,8 +1476,8 @@
     }
 
     // ============================ 2D Overlay Functions ============================
-
-    // Draw the full, draggable map
+    // ... (drawFullMap, drawMinimap, updateOverlay - unchanged) ...
+        // Draw the full, draggable map
     function drawFullMap(ctx, maze, discovered, playerCoord, fullMapOffsetX, fullMapOffsetY, windowWidth, windowHeight) {
       const cellSize = 10; // Smaller cells for full map
       const cols = maze[0].length;
@@ -1734,7 +1769,7 @@
        ctx.textAlign = "left";
     }
 
-    // ============================ Window Load ============================
+    // ============================ Window Load & Resize ============================
     window.onload = init;
 
      // Handle window resize
@@ -1759,4 +1794,3 @@
   </script>
 </body>
 </html>
-
