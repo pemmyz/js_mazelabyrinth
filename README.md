@@ -19,7 +19,6 @@ A 3D maze exploration game rendered using WebGL with:
 - Intelligent bot navigation (BFS, DFS, A*, and Explore)
 - Fullscreen and draggable 2D map overlay
 - Auto-starting bot if the player is idle
-- Dynamic fog-of-war style map discovery
 - Exit detection and automatic maze regeneration
 - Smooth player movement and rotation animations
 
