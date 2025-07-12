@@ -64,3 +64,12 @@ A 3D maze exploration game rendered using WebGL with:
 ```bash
 # Python 3.x
 python -m http.server
+
+
+---
+
+Used textures:
+- https://opengameart.org/content/tileable-dirt-textures
+- https://opengameart.org/content/bricks-tiled-texture-64x64
+- https://opengameart.org/content/50-free-textures-5-with-normalmaps?page=2
+- https://opengameart.org/content/exit-sign-64
