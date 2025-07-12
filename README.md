@@ -64,7 +64,7 @@ A 3D maze exploration game rendered using WebGL with:
 ```bash
 # Python 3.x
 python -m http.server
-
+```
 
 ---
 
