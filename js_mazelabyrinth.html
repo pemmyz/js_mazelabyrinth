@@ -38,8 +38,15 @@
     function lerp(a, b, t) {
       return a + (b - a) * t;
     }
+    // More robust angle interpolation that handles wrapping
     function lerpAngle(a, b, t) {
-      return a + (b - a) * t;
+      let delta = b - a;
+      if (delta > 180) {
+        b -= 360;
+      } else if (delta < -180) {
+        b += 360;
+      }
+      return (a + (b - a) * t + 360) % 360; // Ensure result is positive
     }
 
     // ============================ Shader Sources ============================
@@ -374,6 +381,7 @@
     const mazeWidth = 100, mazeHeight = 100, maxRooms = 40, roomMinSize = 3, roomMaxSize = 8;
     let fullMapVisible = false;
     let helpVisible = true;
+    let isPaused = false; // NEW: For pausing the game
 
     // Animation variables for smooth movement.
     let animatingTranslation = false;
@@ -400,6 +408,12 @@
     let botPath = [];
     let botPathIndex = 0;
     let selectedAlgorithm = "bfs"; // Options: "bfs", "dfs", "astar", "explore"
+
+    // ----------- NEW: GAMEPAD STATE -----------
+    let activeGamepadIndex = null;
+    const gamepadButtonCooldowns = {};
+    let gamepadMovementState = { up: false, down: false, left: false, right: false };
+
 
     // ============================ Pathfinding Helper Functions ============================
     // Returns a string key for coordinate objects.
@@ -672,71 +686,187 @@
     function onMouseUp(e) {
       isDragging = false;
     }
+    
+    // ============================ Movement Helper Functions ============================
+    function moveForward() {
+        if (botMode || animatingTranslation || animatingRotation) return;
+        let rad = toRadian(playerAngle);
+        let offset = [Math.sin(rad), 0, Math.cos(rad)];
+        let nx = playerPos[0] + offset[0];
+        let nz = playerPos[2] + offset[2];
+        if (canMove(nx, nz)) {
+            animatingTranslation = true;
+            translationStart = performance.now();
+            startPos = [...playerPos];
+            targetPos = [nx, playerPos[1], nz];
+        }
+    }
+    function moveBackward() {
+        if (botMode || animatingTranslation || animatingRotation) return;
+        let rad = toRadian(playerAngle);
+        let offset = [-Math.sin(rad), 0, -Math.cos(rad)];
+        let nx = playerPos[0] + offset[0];
+        let nz = playerPos[2] + offset[2];
+        if (canMove(nx, nz)) {
+            animatingTranslation = true;
+            translationStart = performance.now();
+            startPos = [...playerPos];
+            targetPos = [nx, playerPos[1], nz];
+        }
+    }
+    function turnLeft() {
+        if (botMode || animatingTranslation || animatingRotation) return;
+        animatingRotation = true;
+        rotationStart = performance.now();
+        startAngle = playerAngle;
+        targetAngle = (playerAngle + 90);
+    }
+    function turnRight() {
+        if (botMode || animatingTranslation || animatingRotation) return;
+        animatingRotation = true;
+        rotationStart = performance.now();
+        startAngle = playerAngle;
+        targetAngle = (playerAngle - 90);
+    }
+    
+
+    // ============================ Gamepad Controls ============================
+    function setButtonCooldown(gamepadIndex, buttonIndex) {
+        if (!gamepadButtonCooldowns[gamepadIndex]) {
+            gamepadButtonCooldowns[gamepadIndex] = {};
+        }
+        gamepadButtonCooldowns[gamepadIndex][buttonIndex] = true;
+        setTimeout(() => {
+            if (gamepadButtonCooldowns[gamepadIndex]) {
+               delete gamepadButtonCooldowns[gamepadIndex][buttonIndex];
+            }
+        }, 300); // 300ms cooldown
+    }
+
+    function handleGamepadInput() {
+        const polledPads = navigator.getGamepads ? navigator.getGamepads() : [];
+        if (!polledPads || polledPads.length === 0 || activeGamepadIndex === null) return;
+
+        const pad = polledPads[activeGamepadIndex];
+        if (!pad) return;
+
+        const DEADZONE = 0.5;
+
+        // --- Handle Movement (D-Pad & Left Stick) ---
+        const dpadUp = pad.buttons[12] && pad.buttons[12].pressed;
+        const dpadDown = pad.buttons[13] && pad.buttons[13].pressed;
+        const dpadLeft = pad.buttons[14] && pad.buttons[14].pressed;
+        const dpadRight = pad.buttons[15] && pad.buttons[15].pressed;
+
+        const stickY = pad.axes[1] || 0;
+        const stickX = pad.axes[0] || 0;
+
+        if (dpadUp || stickY < -DEADZONE) {
+            if (!gamepadMovementState.up) {
+                moveForward();
+                gamepadMovementState.up = true;
+            }
+        } else {
+            gamepadMovementState.up = false;
+        }
+
+        if (dpadDown || stickY > DEADZONE) {
+            if (!gamepadMovementState.down) {
+                moveBackward();
+                gamepadMovementState.down = true;
+            }
+        } else {
+            gamepadMovementState.down = false;
+        }
+
+        if (dpadLeft || stickX < -DEADZONE) {
+            if (!gamepadMovementState.left) {
+                turnLeft();
+                gamepadMovementState.left = true;
+            }
+        } else {
+            gamepadMovementState.left = false;
+        }
+        
+        if (dpadRight || stickX > DEADZONE) {
+            if (!gamepadMovementState.right) {
+                turnRight();
+                gamepadMovementState.right = true;
+            }
+        } else {
+            gamepadMovementState.right = false;
+        }
+
+
+        // --- Handle Action Buttons (with cooldowns) ---
+        const buttonMap = {
+            1: 'b', // 'B' button on Xbox -> Toggle Bot
+            3: 'm', // 'Y' button on Xbox -> Toggle Map
+            8: 'h', // 'Select' button -> Toggle Help
+            9: 'p'  // 'Start' button -> Pause
+        };
+
+        for (const btnIndex in buttonMap) {
+            if (pad.buttons[btnIndex] && pad.buttons[btnIndex].pressed) {
+                if (!gamepadButtonCooldowns[activeGamepadIndex] || !gamepadButtonCooldowns[activeGamepadIndex][btnIndex]) {
+                    onKeyDown({ key: buttonMap[btnIndex] }); 
+                    setButtonCooldown(activeGamepadIndex, parseInt(btnIndex));
+                }
+            }
+        }
+    }
+
 
     // ============================ Keyboard Controls ============================
     function onKeyDown(e) {
+      const key = e.key.toLowerCase();
+      // Handle Pause Key First
+      if (key === "p") {
+          isPaused = !isPaused;
+          // The render loop now runs continuously, so we don't need to manually restart it.
+          // if (!isPaused) {
+          //     requestAnimationFrame(render); 
+          // }
+          return; // Don't process other keys if toggling pause
+      }
+      
+      // If paused, ignore all other input
+      if (isPaused) return;
+
       // 1) Always handle toggles & bot/algorithm keys:
-      switch (e.key) {
-        case "b": case "B":
+      switch (key) {
+        case "b":
           botMode = !botMode;
           console.log("Bot mode " + (botMode ? "enabled" : "disabled"));
           if (botMode) computeBotPath();
           return;
         case "1": case "2": case "3": case "4":
           const algMap = { "1":"bfs","2":"dfs","3":"astar","4":"explore" };
-          selectedAlgorithm = algMap[e.key];
+          selectedAlgorithm = algMap[key];
           console.log("Algorithm selected:", selectedAlgorithm.toUpperCase());
           if (botMode) computeBotPath();
           return;
-        case "m": case "M":
+        case "m":
           fullMapVisible = !fullMapVisible;
           return;
-        case "h": case "H":
+        case "h":
           helpVisible = !helpVisible;
           return;
       }
 
-      // 2) Block manual movement if bot is running or animation in progress:
-      if (botMode || animatingTranslation || animatingRotation) return;
-
       // 3) Manual movement controls:
-      let rad = toRadian(playerAngle);
-      switch(e.key) {
-        case "w": case "ArrowUp":
-          {
-            let offset = [Math.sin(rad),0,Math.cos(rad)];
-            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
-            if (canMove(nx,nz)) {
-              animatingTranslation=true;
-              translationStart=performance.now();
-              startPos=[...playerPos];
-              targetPos=[nx,playerPos[1],nz];
-            }
-          }
+      switch(key) {
+        case "w": case "arrowup":
+          moveForward();
           break;
-        case "s": case "ArrowDown":
-          {
-            let offset=[-Math.sin(rad),0,-Math.cos(rad)];
-            let nx=playerPos[0]+offset[0], nz=playerPos[2]+offset[2];
-            if (canMove(nx,nz)) {
-              animatingTranslation=true;
-              translationStart=performance.now();
-              startPos=[...playerPos];
-              targetPos=[nx,playerPos[1],nz];
-            }
-          }
+        case "s": case "arrowdown":
+          moveBackward();
           break;
-        case "a": case "ArrowLeft":
-          animatingRotation=true;
-          rotationStart=performance.now();
-          startAngle=playerAngle;
-          targetAngle=(playerAngle+90)%360;
+        case "a": case "arrowleft":
+          turnLeft();
           break;
-        case "d": case "ArrowRight":
-          animatingRotation=true;
-          rotationStart=performance.now();
-          startAngle=playerAngle;
-          targetAngle=(playerAngle+270)%360;
+        case "d": case "arrowright":
+          turnRight();
           break;
       }
     }
@@ -816,107 +946,110 @@
     }
 
     // ============================ Render Loop ============================
+    // FIXED: The render loop now runs continuously to process input even when paused.
+    // Game logic and 3D rendering are skipped if the `isPaused` flag is true.
     function render(now) {
-      now *= 0.001;
-      let currentTime = performance.now();
+      // Always handle gamepad input, regardless of pause state.
+      handleGamepadInput();
 
-      // Process ongoing movement animations.
-      if (animatingTranslation) {
-        let t = (currentTime - translationStart) / translationDuration;
-        if (t >= 1) { t = 1; animatingTranslation = false; }
-        playerPos[0] = lerp(startPos[0], targetPos[0], t);
-        playerPos[1] = lerp(startPos[1], targetPos[1], t);
-        playerPos[2] = lerp(startPos[2], targetPos[2], t);
-      }
-      if (animatingRotation) {
-        let t = (currentTime - rotationStart) / rotationDuration;
-        if (t >= 1) { t = 1; animatingRotation = false; }
-        playerAngle = lerpAngle(startAngle, targetAngle, t);
-      }
+      // If the game is paused, we only draw the overlay and skip all game logic.
+      if (isPaused) {
+          updateOverlay(); // This will draw the "PAUSED" screen.
+      } else {
+          // --- Game Logic and Rendering (runs only when not paused) ---
+          let currentTime = performance.now();
 
-      // -------- Bot mode automatic movement logic -----------
-      if (botMode && !animatingTranslation && !animatingRotation) {
-        if (botPath && botPath.length > 0 && botPathIndex < botPath.length) {
-          let currentCell = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
-          let nextCell = botPath[botPathIndex];
-          if (currentCell.x === nextCell.x && currentCell.y === nextCell.y) {
-            botPathIndex++;
-            if (botPathIndex < botPath.length) {
-              nextCell = botPath[botPathIndex];
-            } else {
-              nextCell = null;
-            }
+          // Process ongoing movement animations.
+          if (animatingTranslation) {
+            let t = (currentTime - translationStart) / translationDuration;
+            if (t >= 1) { t = 1; animatingTranslation = false; }
+            playerPos[0] = lerp(startPos[0], targetPos[0], t);
+            playerPos[1] = lerp(startPos[1], targetPos[1], t);
+            playerPos[2] = lerp(startPos[2], targetPos[2], t);
           }
-          if (nextCell) {
-            let dx = (nextCell.x + 0.5) - playerPos[0];
-            let dz = (nextCell.y + 0.5) - playerPos[2];
-            let rawAngle = Math.atan2(dx, dz) * (180 / Math.PI);
-            rawAngle = (rawAngle + 360) % 360;
-            let desiredAngle = Math.round(rawAngle / 90) * 90 % 360;
-            let angleDiff = (desiredAngle - playerAngle + 360) % 360;
-            if (angleDiff !== 0) {
-              animatingRotation = true;
-              rotationStart = performance.now();
-              startAngle = playerAngle;
-              targetAngle = desiredAngle;
-              playerAngle = targetAngle;
-            } else {
-              let offset = [Math.sin(toRadian(playerAngle)), 0, Math.cos(toRadian(playerAngle))];
-              let newX = playerPos[0] + offset[0];
-              let newZ = playerPos[2] + offset[2];
-              if (canMove(newX, newZ)) {
-                animatingTranslation = true;
-                translationStart = performance.now();
-                startPos = [playerPos[0], playerPos[1], playerPos[2]];
-                targetPos = [newX, playerPos[1], newZ];
-              } else {
-                computeBotPath();
+          if (animatingRotation) {
+            let t = (currentTime - rotationStart) / rotationDuration;
+            if (t >= 1) { t = 1; animatingRotation = false; }
+            playerAngle = lerpAngle(startAngle, targetAngle, t);
+          }
+
+          // Bot mode automatic movement logic
+          if (botMode && !animatingTranslation && !animatingRotation) {
+            if (botPath && botPath.length > 0 && botPathIndex < botPath.length) {
+              let currentCell = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
+              let nextCell = botPath[botPathIndex];
+              if (currentCell.x === nextCell.x && currentCell.y === nextCell.y) {
+                botPathIndex++;
+                if (botPathIndex < botPath.length) {
+                  nextCell = botPath[botPathIndex];
+                } else {
+                  nextCell = null;
+                }
               }
-              botPathIndex++;
+              if (nextCell) {
+                let dx = (nextCell.x + 0.5) - playerPos[0];
+                let dz = (nextCell.y + 0.5) - playerPos[2];
+                let rawAngle = Math.atan2(dx, dz) * (180 / Math.PI);
+                let desiredAngle = (Math.round(rawAngle / 90) * 90);
+                let angleDiff = lerpAngle(playerAngle, desiredAngle, 1) - playerAngle;
+                
+                if (Math.abs(angleDiff) > 1) {
+                  animatingRotation = true;
+                  rotationStart = performance.now();
+                  startAngle = playerAngle;
+                  targetAngle = desiredAngle;
+                } else {
+                  playerAngle = desiredAngle;
+                  moveForward();
+                  botPathIndex++;
+                }
+              }
+            } else {
+              computeBotPath();
             }
           }
-        } else {
-          // If no (or finished) bot path, recompute it.
-          computeBotPath();
-        }
+
+          // 3D Rendering
+          gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          gl.useProgram(shaderProgram);
+
+          const fieldOfView = toRadian(90);
+          const aspect = gl.canvas.width / gl.canvas.height;
+          const zNear = 0.1, zFar = 100.0;
+          const projectionMatrix = glMatrix.mat4.create();
+          glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+          gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
+
+          const viewMatrix = glMatrix.mat4.create();
+          const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
+          const center = [
+            playerPos[0] + Math.sin(toRadian(playerAngle)),
+            playerPos[1] + 0.5,
+            playerPos[2] + Math.cos(toRadian(playerAngle))
+          ];
+          glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
+          gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
+
+          drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
+          drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
+          drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
+          drawObject(buffers.wallExit, textures.exit, glMatrix.mat4.create());
+
+          // 2D Overlay
+          updateOverlay();
+
+          // Check for win condition
+          if (!animatingTranslation && !animatingRotation) {
+            let currentCellX = Math.floor(playerPos[0]);
+            let currentCellZ = Math.floor(playerPos[2]);
+            if (mazeData.maze[currentCellZ].charAt(currentCellX) === 'E') {
+              restartGame();
+            }
+          }
       }
 
-      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      gl.useProgram(shaderProgram);
-
-      const fieldOfView = toRadian(90);
-      const aspect = gl.canvas.width / gl.canvas.height;
-      const zNear = 0.1, zFar = 100.0;
-      const projectionMatrix = glMatrix.mat4.create();
-      glMatrix.mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
-      gl.uniformMatrix4fv(uniformLocations.uProjection, false, projectionMatrix);
-
-      const viewMatrix = glMatrix.mat4.create();
-      const eye = [playerPos[0], playerPos[1] + 0.5, playerPos[2]];
-      const center = [
-        playerPos[0] + Math.sin(toRadian(playerAngle)),
-        playerPos[1] + 0.5,
-        playerPos[2] + Math.cos(toRadian(playerAngle))
-      ];
-      glMatrix.mat4.lookAt(viewMatrix, eye, center, [0,1,0]);
-      gl.uniformMatrix4fv(uniformLocations.uView, false, viewMatrix);
-
-      drawObject(buffers.floor, textures.ground, glMatrix.mat4.create());
-      drawObject(buffers.ceiling, textures.roof, glMatrix.mat4.create());
-      drawObject(buffers.wallBrick, textures.brick, glMatrix.mat4.create());
-      drawObject(buffers.wallExit, textures.exit, glMatrix.mat4.create());
-
-      updateOverlay();
-
-      // If player is on an exit cell and not moving, restart the maze.
-      if (!animatingTranslation && !animatingRotation) {
-        let currentCellX = Math.floor(playerPos[0]);
-        let currentCellZ = Math.floor(playerPos[2]);
-        if (mazeData.maze[currentCellZ].charAt(currentCellX) === 'E') {
-          restartGame();
-        }
-      }
+      // Always request the next frame to keep the loop running for input processing.
       requestAnimationFrame(render);
     }
 
@@ -1011,36 +1144,55 @@
       overlay.height = window.innerHeight;
       const ctx = overlay.getContext("2d");
       ctx.clearRect(0, 0, overlay.width, overlay.height);
-      const cellSize = 12;
+
+      // If paused, draw the pause screen and nothing else.
+      if (isPaused) {
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(0, 0, overlay.width, overlay.height);
+          ctx.fillStyle = "white";
+          ctx.font = "bold 48px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText("PAUSED", overlay.width / 2, overlay.height / 2);
+          ctx.font = "20px monospace";
+          ctx.fillText("Press P or START to Resume", overlay.width / 2, overlay.height / 2 + 40);
+          return;
+      }
+
       const pPos = { x: Math.floor(playerPos[0]), y: Math.floor(playerPos[2]) };
       if (fullMapVisible) {
+        const cellSize = 12;
         let fullMapOffsetX = (window.innerWidth / 2) - (pPos.x * cellSize + cellSize / 2) + dragOffsetX;
         let fullMapOffsetY = (window.innerHeight / 2) - (pPos.y * cellSize + cellSize / 2) + dragOffsetY;
         drawFullMap(ctx, mazeData.maze, discovered, pPos, fullMapOffsetX, fullMapOffsetY, overlay.width, overlay.height);
       }
       drawMinimap(ctx, mazeData.maze, discovered, pPos, overlay.width, overlay.height);
+
       if (helpVisible) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        const boxWidth = 300, boxHeight = 180;
+        const boxWidth = 380, boxHeight = 300; // Adjusted size
         ctx.fillRect(10, 10, boxWidth, boxHeight);
         ctx.fillStyle = "white";
         ctx.font = "16px monospace";
         const lineHeight = 20;
         let startX = 20, startY = 35;
         const instructions = [
-          "Controls:",
-          "W/Arrow Up: Move forward",
-          "S/Arrow Down: Move backward",
-          "A/Arrow Left: Turn left",
-          "D/Arrow Right: Turn right",
-          "M: Toggle full map",
-          "H: Toggle help",
-          "B: Toggle bot mode",
-          "1: BFS pathfinding",
-          "2: DFS pathfinding",
-          "3: A* pathfinding",
-          "4: Explore mode",
-          "Drag mouse: Pan full map"
+          "--- KEYBOARD ---",
+          "W/S/Arrows: Move Fwd/Back",
+          "A/D/Arrows: Turn Left/Right",
+          "",
+          "--- GAMEPAD ---",
+          "D-Pad/Stick: Move & Turn",
+          "(Y) Button:  Toggle Full Map",
+          "(B) Button:  Toggle Bot Mode",
+          "Start:       Pause Game",
+          "Select:      Toggle Help",
+          "",
+          "--- GENERAL ---",
+          "M: Toggle Full Map",
+          "H: Toggle Help",
+          "P: Pause Game",
+          "B: Toggle Bot Mode",
+          "1-4: Bot Algorithm",
         ];
         for (let i = 0; i < instructions.length; i++) {
           ctx.fillText(instructions[i], startX, startY + i * lineHeight);
@@ -1052,7 +1204,24 @@
     }
 
     window.onload = init;
+
+    // --- NEW: GAMEPAD CONNECTION LISTENERS ---
+    window.addEventListener("gamepadconnected", e => {
+        console.log(`Gamepad connected at index ${e.gamepad.index}: ${e.gamepad.id}.`);
+        if (activeGamepadIndex === null) {
+            activeGamepadIndex = e.gamepad.index;
+            console.log(`Gamepad ${activeGamepadIndex} is now active.`);
+        }
+    });
+    window.addEventListener("gamepaddisconnected", e => {
+        console.log(`Gamepad disconnected from index ${e.gamepad.index}: ${e.gamepad.id}.`);
+        if (activeGamepadIndex === e.gamepad.index) {
+            console.log(`Active gamepad ${activeGamepadIndex} was disconnected.`);
+            activeGamepadIndex = null;
+            delete gamepadButtonCooldowns[e.gamepad.index];
+        }
+    });
+
   </script>
 </body>
 </html>
-
