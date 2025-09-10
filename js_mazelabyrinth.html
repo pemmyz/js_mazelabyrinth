@@ -381,7 +381,7 @@
     const mazeWidth = 100, mazeHeight = 100, maxRooms = 40, roomMinSize = 3, roomMaxSize = 8;
     let fullMapVisible = false;
     let helpVisible = true;
-    let isPaused = false; // NEW: For pausing the game
+    let isPaused = false;
 
     // Animation variables for smooth movement.
     let animatingTranslation = false;
@@ -409,10 +409,10 @@
     let botPathIndex = 0;
     let selectedAlgorithm = "bfs"; // Options: "bfs", "dfs", "astar", "explore"
 
-    // ----------- NEW: GAMEPAD STATE -----------
+    // ----------- GAMEPAD STATE -----------
     let activeGamepadIndex = null;
     const gamepadButtonCooldowns = {};
-    let gamepadMovementState = { up: false, down: false, left: false, right: false };
+    // REMOVED: let gamepadMovementState = { up: false, down: false, left: false, right: false };
 
 
     // ============================ Pathfinding Helper Functions ============================
@@ -743,6 +743,7 @@
         }, 300); // 300ms cooldown
     }
 
+    // FIXED: Simplified to allow continuous movement when D-pad is held
     function handleGamepadInput() {
         const polledPads = navigator.getGamepads ? navigator.getGamepads() : [];
         if (!polledPads || polledPads.length === 0 || activeGamepadIndex === null) return;
@@ -761,42 +762,25 @@
         const stickY = pad.axes[1] || 0;
         const stickX = pad.axes[0] || 0;
 
+        // By removing the state checks, these functions will be called on every
+        // frame the button is held. The movement functions themselves prevent
+        // starting a new move while an old one is animating, creating the
+        // desired step-by-step continuous movement.
         if (dpadUp || stickY < -DEADZONE) {
-            if (!gamepadMovementState.up) {
-                moveForward();
-                gamepadMovementState.up = true;
-            }
-        } else {
-            gamepadMovementState.up = false;
+            moveForward();
         }
 
         if (dpadDown || stickY > DEADZONE) {
-            if (!gamepadMovementState.down) {
-                moveBackward();
-                gamepadMovementState.down = true;
-            }
-        } else {
-            gamepadMovementState.down = false;
+            moveBackward();
         }
 
         if (dpadLeft || stickX < -DEADZONE) {
-            if (!gamepadMovementState.left) {
-                turnLeft();
-                gamepadMovementState.left = true;
-            }
-        } else {
-            gamepadMovementState.left = false;
+            turnLeft();
         }
         
         if (dpadRight || stickX > DEADZONE) {
-            if (!gamepadMovementState.right) {
-                turnRight();
-                gamepadMovementState.right = true;
-            }
-        } else {
-            gamepadMovementState.right = false;
+            turnRight();
         }
-
 
         // --- Handle Action Buttons (with cooldowns) ---
         const buttonMap = {
@@ -823,10 +807,6 @@
       // Handle Pause Key First
       if (key === "p") {
           isPaused = !isPaused;
-          // The render loop now runs continuously, so we don't need to manually restart it.
-          // if (!isPaused) {
-          //     requestAnimationFrame(render); 
-          // }
           return; // Don't process other keys if toggling pause
       }
       
@@ -946,8 +926,6 @@
     }
 
     // ============================ Render Loop ============================
-    // FIXED: The render loop now runs continuously to process input even when paused.
-    // Game logic and 3D rendering are skipped if the `isPaused` flag is true.
     function render(now) {
       // Always handle gamepad input, regardless of pause state.
       handleGamepadInput();
